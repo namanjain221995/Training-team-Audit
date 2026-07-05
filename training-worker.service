@@ -1,0 +1,21 @@
+# /etc/systemd/system/training-worker.service
+# The analysis worker: drains SQS, analyzes recordings, uploads results to S3,
+# stops the instance when idle. Every start first pulls the latest code
+# (ExecStartPre), so a plain instance start after a git push runs the new code.
+[Unit]
+Description=Training session analysis worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/training-audit
+EnvironmentFile=-/opt/training-audit/.env
+ExecStartPre=/bin/bash /opt/training-audit/deploy/self-update.sh
+ExecStart=/opt/training-audit/.venv/bin/python -m worker.worker
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
