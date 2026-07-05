@@ -1,0 +1,71 @@
+name: Deploy worker
+
+# Push to main -> start the EC2 worker -> pull latest code + restart the service.
+# The instance stops itself again after IDLE_MINUTES with an empty queue, so a
+# deploy briefly wakes it and it goes back to sleep on its own.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency: deploy-worker
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      INSTANCE_ID: ${{ secrets.WORKER_INSTANCE_ID }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Start worker instance (no-op if already running)
+        run: |
+          aws ec2 start-instances --instance-ids "$INSTANCE_ID"
+          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+
+      - name: Wait for SSM agent
+        run: |
+          for i in $(seq 1 40); do
+            status=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || true)
+            [ "$status" = "Online" ] && echo "SSM online" && exit 0
+            echo "waiting for SSM ($i/40): $status"; sleep 6
+          done
+          echo "SSM never came online" && exit 1S
+
+      - name: Pull latest code + restart worker
+        run: |
+          cmd_id=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "GitHub Actions deploy ${GITHUB_SHA::7}" \
+            --parameters commands='["bash /opt/training-audit/deploy/deploy.sh"]' \
+            --query 'Command.CommandId' --output text)
+          echo "command: $cmd_id"
+          for i in $(seq 1 60); do
+            st=$(aws ssm get-command-invocation --command-id "$cmd_id" \
+                 --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            echo "status ($i/60): $st"
+            case "$st" in
+              Success)
+                aws ssm get-command-invocation --command-id "$cmd_id" \
+                  --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text
+                exit 0 ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --command-id "$cmd_id" \
+                  --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text
+                exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "deploy command did not finish in time" && exit 1
+
+      - name: Note
+        run: echo "Deployed. The instance will stop itself after the idle window if the queue is empty."
