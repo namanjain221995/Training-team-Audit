@@ -1,0 +1,12 @@
+services:
+  analyzer:
+    build: .
+    env_file: .env
+    volumes:
+      - ./input:/data/input        # your video (and optional .vtt)
+      - ./output:/data/output      # result.json + evidence frames
+      - ./trainer:/data/trainer    # optional trainer reference face
+      - model-cache:/data/.cache   # InsightFace + Whisper models (downloaded once)
+
+volumes:
+  model-cache:

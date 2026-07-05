@@ -1,0 +1,454 @@
+{
+  "1": {
+    "title": "HR + Niche Core Readiness",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Program Orientation",
+        "detail": "Introduce trainer and explain the full program structure and expectations. Explain deliverables, milestones, and the interview-readiness objective.",
+        "planned_start": "0:00",
+        "planned_end": "0:20",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Readiness Validation",
+        "detail": "Verify environment readiness: Zoom, Google Docs, folders, recording setup, camera position, lighting, microphone clarity, internet stability.",
+        "planned_start": "0:20",
+        "planned_end": "0:35",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Interview Foundations",
+        "detail": "Teach interview discipline: posture, eye contact, gestures, pauses, calm delivery, and stop discipline. Introduce Answer Structure: Direct answer -> Brief explanation -> Stop. Introduce STAR structure: Situation -> Task -> Action -> Result. HR answers: 60-90 seconds. Technical answers: 2-3 minutes.",
+        "planned_start": "0:35",
+        "planned_end": "0:50",
+        "expected_minutes": 15
+      },
+      {
+        "name": "HR Question Coaching",
+        "detail": "Explain intent of HR questions, common mistakes, and structured answers using STAR. Emphasize honesty when the candidate does not know an answer.",
+        "planned_start": "0:50",
+        "planned_end": "1:20",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Niche Fundamentals",
+        "detail": "Teach core concepts and high-frequency interview topics using project-style explanations. Introduce Tool Explanation Method: 1. What the tool is 2. What problem it solves 3. Simple analogy 4. How it fits into the system.",
+        "planned_start": "1:20",
+        "planned_end": "1:50",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Explain practice expectations and structured preparation approach.",
+        "planned_start": "1:50",
+        "planned_end": "2:00",
+        "expected_minutes": 10
+      }
+    ]
+  },
+  "2": {
+    "title": "Primary Weakness Repair and Guided Practice",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Review HR and niche responses. Reinforce clear structure, calm delivery, and stopping discipline.",
+        "planned_start": "0:00",
+        "planned_end": "0:15",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Project Interview Foundations",
+        "detail": "Explain how interviewers judge project answers: ownership clarity, metrics, STAR depth, logical flow, and failure awareness.",
+        "planned_start": "0:15",
+        "planned_end": "0:30",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Mandatory Project Scenario Coaching",
+        "detail": "Teach the 5 Mandatory Project Scenario Types: 1. Failure & Learning Story 2. Design Trade-off Decision 3. System Failure & Recovery 4. End-to-End Request Flow 5. Security & Compliance Scope. Ensure candidates use real experiences only.",
+        "planned_start": "0:30",
+        "planned_end": "1:15",
+        "expected_minutes": 45
+      },
+      {
+        "name": "Failure & Trade-off Explanation",
+        "detail": "Teach how to explain technical decisions, constraints, trade-offs, and mistakes. Failure explanation flow: What went wrong -> Why it happened -> How it was detected -> How it was fixed -> What was learned.",
+        "planned_start": "1:15",
+        "planned_end": "1:40",
+        "expected_minutes": 25
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Reinforce STAR storytelling and structured project explanation practice.",
+        "planned_start": "1:40",
+        "planned_end": "2:00",
+        "expected_minutes": 20
+      }
+    ]
+  },
+  "3": {
+    "title": "Introduction, Team Structure and Resume Defense",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Evaluate project explanations for STAR structure, metrics, ownership clarity, and logical explanation flow.",
+        "planned_start": "0:00",
+        "planned_end": "0:20",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Introduction Script",
+        "detail": "Teach structured introduction: background -> role -> skills -> projects -> strengths -> reason for change -> close.",
+        "planned_start": "0:20",
+        "planned_end": "0:35",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Team Structure & System Overview",
+        "detail": "Explain real-world team structure: Frontend, Backend, Data, AI/ML, DevOps, Security and how responsibilities are divided.",
+        "planned_start": "0:35",
+        "planned_end": "0:55",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Tools & System Thinking",
+        "detail": "Teach how to connect tools into one end-to-end system architecture: Frontend -> API Layer -> Queue/Messaging -> Processing Layer -> Database/Cache -> Monitoring/Logging. Explain inputs, outputs, ownership, monitoring, and failure handling at each step.",
+        "planned_start": "0:55",
+        "planned_end": "1:30",
+        "expected_minutes": 35
+      },
+      {
+        "name": "Resume Defense",
+        "detail": "Ask probing resume questions and correct over-claiming ownership. Teach candidates to clearly state what they implemented vs what other teams owned.",
+        "planned_start": "1:30",
+        "planned_end": "1:55",
+        "expected_minutes": 25
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign system explanation and resume-defense practice.",
+        "planned_start": "1:55",
+        "planned_end": "2:00",
+        "expected_minutes": 5
+      }
+    ]
+  },
+  "4": {
+    "title": "Prompt Engineering and Persona-Based Interviews",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Identify clarity gaps in system explanations and project ownership.",
+        "planned_start": "0:00",
+        "planned_end": "0:10",
+        "expected_minutes": 10
+      },
+      {
+        "name": "Prompt Engineering",
+        "detail": "Teach structured prompt design: role context, constraints, assumptions, and conversation flow control.",
+        "planned_start": "0:10",
+        "planned_end": "0:40",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Persona-Based Interview Simulation",
+        "detail": "Teach Persona-Based Explanation Depth: Recruiter -> What the system does. Hiring Manager -> How it works. Architect -> Why design decisions were made.",
+        "planned_start": "0:40",
+        "planned_end": "1:30",
+        "expected_minutes": 50
+      },
+      {
+        "name": "Resume Defense",
+        "detail": "Conduct deep probing and enforce calm, structured responses.",
+        "planned_start": "1:30",
+        "planned_end": "1:50",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Explain persona-based practice tasks.",
+        "planned_start": "1:50",
+        "planned_end": "2:00",
+        "expected_minutes": 10
+      }
+    ]
+  },
+  "5": {
+    "title": "Small Talk, JD Mapping and Tools",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Review persona explanations and communication clarity.",
+        "planned_start": "0:00",
+        "planned_end": "0:10",
+        "expected_minutes": 10
+      },
+      {
+        "name": "Small Talk Mastery",
+        "detail": "Train interview conversation skills: greetings, tone, posture, pacing, and smooth transition into technical discussion.",
+        "planned_start": "0:10",
+        "planned_end": "0:40",
+        "expected_minutes": 30
+      },
+      {
+        "name": "JD Understanding",
+        "detail": "Teach how interviewers read job descriptions. Train candidates to align their project experience to multiple job roles.",
+        "planned_start": "0:40",
+        "planned_end": "1:10",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Tools & Technology Demo",
+        "detail": "Ask tool-related questions and ensure candidates explain them using the Tool Explanation Method.",
+        "planned_start": "1:10",
+        "planned_end": "1:30",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Resume Defense",
+        "detail": "Test composure and ownership clarity through interruptions and probing questions.",
+        "planned_start": "1:30",
+        "planned_end": "1:50",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign JD mapping and explanation practice.",
+        "planned_start": "1:50",
+        "planned_end": "2:00",
+        "expected_minutes": 10
+      }
+    ]
+  },
+  "6": {
+    "title": "System Design",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Identify gaps in structured thinking affecting system design interviews.",
+        "planned_start": "0:00",
+        "planned_end": "0:30",
+        "expected_minutes": 30
+      },
+      {
+        "name": "System Design Prompting",
+        "detail": "Teach how to structure prompts for design interviews and requirement discovery.",
+        "planned_start": "0:30",
+        "planned_end": "0:50",
+        "expected_minutes": 20
+      },
+      {
+        "name": "System Design Framework",
+        "detail": "Teach system design sequence: Clarify problem -> Functional requirements -> Non-functional requirements -> Entities -> APIs -> Architecture -> Request flow -> Component deep dive -> Trade-offs -> Scalability.",
+        "planned_start": "0:50",
+        "planned_end": "1:25",
+        "expected_minutes": 35
+      },
+      {
+        "name": "Trade-offs & Scalability",
+        "detail": "Train candidates to identify bottlenecks, scaling strategies, and design compromises.",
+        "planned_start": "1:25",
+        "planned_end": "1:45",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Diagram Usage",
+        "detail": "Teach when to draw architecture diagrams vs explain verbally.",
+        "planned_start": "1:45",
+        "planned_end": "1:55",
+        "expected_minutes": 10
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign system design practice tasks.",
+        "planned_start": "1:55",
+        "planned_end": "2:00",
+        "expected_minutes": 5
+      }
+    ]
+  },
+  "7": {
+    "title": "Environment, Integrity and GitHub Walkthrough",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Check",
+        "detail": "Confirm preparation progress and reinforce interview readiness expectations.",
+        "planned_start": "0:00",
+        "planned_end": "0:20",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Interview Environment Setup",
+        "detail": "Train candidates on professional setup: camera at eye level, neutral background, clear audio, steady camera, upright posture.",
+        "planned_start": "0:20",
+        "planned_end": "0:35",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Integrity & Verbal Control",
+        "detail": "Teach concise answers, honesty in uncertainty, and controlled speaking pace.",
+        "planned_start": "0:35",
+        "planned_end": "0:55",
+        "expected_minutes": 20
+      },
+      {
+        "name": "GitHub Project Walkthrough",
+        "detail": "Review candidate project repository and challenge decisions with repeated 'why' questions to validate ownership and reasoning.",
+        "planned_start": "0:55",
+        "planned_end": "1:40",
+        "expected_minutes": 45
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign concise explanation and listening practice.",
+        "planned_start": "1:40",
+        "planned_end": "2:00",
+        "expected_minutes": 20
+      }
+    ]
+  },
+  "8": {
+    "title": "Active Listening and Adaptive Discussion",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Evaluate listening and reasoning clarity.",
+        "planned_start": "0:00",
+        "planned_end": "0:20",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Active Listening",
+        "detail": "Train candidates to ask clarifying questions and restate the problem before answering.",
+        "planned_start": "0:20",
+        "planned_end": "0:40",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Document Reading",
+        "detail": "Teach extracting constraints and requirements from job descriptions or project documents.",
+        "planned_start": "0:40",
+        "planned_end": "1:00",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Adaptive Discussion",
+        "detail": "Introduce requirement changes during discussion to test adaptability.",
+        "planned_start": "1:00",
+        "planned_end": "1:45",
+        "expected_minutes": 45
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign logical breakdown and first-principles explanation practice.",
+        "planned_start": "1:45",
+        "planned_end": "2:00",
+        "expected_minutes": 15
+      }
+    ]
+  },
+  "9": {
+    "title": "Technical Rounds and First-Principles Reasoning",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Homework Review",
+        "detail": "Review reasoning clarity and explanation flow.",
+        "planned_start": "0:00",
+        "planned_end": "0:20",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Technical Round Awareness",
+        "detail": "Explain interview round types: coding, discussion, system design, and managerial rounds.",
+        "planned_start": "0:20",
+        "planned_end": "0:40",
+        "expected_minutes": 20
+      },
+      {
+        "name": "First-Principles Reasoning",
+        "detail": "Teach explaining decisions using inputs, outputs, constraints, and trade-offs.",
+        "planned_start": "0:40",
+        "planned_end": "1:00",
+        "expected_minutes": 20
+      },
+      {
+        "name": "GitHub Why Ladder",
+        "detail": "Repeatedly challenge technical decisions to test logical consistency.",
+        "planned_start": "1:00",
+        "planned_end": "1:45",
+        "expected_minutes": 45
+      },
+      {
+        "name": "Homework Briefing",
+        "detail": "Assign resume explanation practice.",
+        "planned_start": "1:45",
+        "planned_end": "2:00",
+        "expected_minutes": 15
+      }
+    ]
+  },
+  "10": {
+    "title": "Full Mock Interview",
+    "total_minutes": 120,
+    "sections": [
+      {
+        "name": "Interview Warm-up",
+        "detail": "Conduct small talk and rapport-building simulation.",
+        "planned_start": "0:00",
+        "planned_end": "0:10",
+        "expected_minutes": 10
+      },
+      {
+        "name": "JD & Resume Discussion",
+        "detail": "Ask detailed resume and job-mapping questions.",
+        "planned_start": "0:10",
+        "planned_end": "0:30",
+        "expected_minutes": 20
+      },
+      {
+        "name": "Project Defense",
+        "detail": "Deep-dive into project architecture, decisions, metrics, and ownership.",
+        "planned_start": "0:30",
+        "planned_end": "1:00",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Technical/System Question",
+        "detail": "Present system design or coding problem and evaluate structured problem solving.",
+        "planned_start": "1:00",
+        "planned_end": "1:30",
+        "expected_minutes": 30
+      },
+      {
+        "name": "Behavioral Questions",
+        "detail": "Assess integrity, stress handling, and coachability.",
+        "planned_start": "1:30",
+        "planned_end": "1:45",
+        "expected_minutes": 15
+      },
+      {
+        "name": "Feedback",
+        "detail": "Provide structured feedback on communication, reasoning, and clarity.",
+        "planned_start": "1:45",
+        "planned_end": "1:55",
+        "expected_minutes": 10
+      },
+      {
+        "name": "Wrap-Up",
+        "detail": "Summarize strengths, improvement areas, and next preparation steps.",
+        "planned_start": "1:55",
+        "planned_end": "2:00",
+        "expected_minutes": 5
+      }
+    ]
+  }
+}

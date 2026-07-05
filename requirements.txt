@@ -1,0 +1,16 @@
+# Transcript reasoning
+openai>=1.40.0
+faster-whisper>=1.0.0
+webvtt-py>=0.5.1
+langdetect>=1.0.9
+python-dotenv>=1.0.1
+
+# Local video models (CPU only, no GPU)
+numpy>=1.24,<2.0
+onnxruntime>=1.17.0,<2.0
+insightface==0.7.3
+# Pin exactly: MediaPipe DELETED the legacy `mp.solutions` API (used by analyzer/video.py's
+# face_detection + face_mesh) in the 0.10.2x+ releases. 0.10.18 is the newest version that still
+# ships `solutions` AND already uses protobuf 4, so it stays compatible with onnx/onnxruntime.
+# Do NOT loosen this to a range — a floating upper bound is exactly what broke the build.
+mediapipe==0.10.18

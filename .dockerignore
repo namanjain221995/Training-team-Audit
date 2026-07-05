@@ -1,0 +1,7 @@
+input/
+output/
+trainer/
+.env
+__pycache__/
+*.pyc
+.git/

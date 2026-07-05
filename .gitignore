@@ -1,0 +1,15 @@
+# ── secrets — NEVER commit (the real OpenAI key lives here) ──
+.env
+
+# ── session data: videos, transcripts, faces, results ─────────
+# large files (GitHub rejects >100MB) AND personal data of real
+# trainers/candidates — keep out of the repo entirely
+input/
+output/
+trainer/
+
+# ── python / tooling noise ────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+*.log
