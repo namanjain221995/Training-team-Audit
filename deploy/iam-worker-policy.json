@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadWriteTrainingPrefix",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::zoom-automation-bucket/Training/*"
+    },
+    {
+      "Sid": "ListTrainingPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::zoom-automation-bucket",
+      "Condition": {"StringLike": {"s3:prefix": "Training/*"}}
+    },
+    {
+      "Sid": "DrainAnalysisQueue",
+      "Effect": "Allow",
+      "Action": ["sqs:ReceiveMessage", "sqs:DeleteMessage",
+                 "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"],
+      "Resource": "arn:aws:sqs:us-east-1:985100584614:training-analysis-jobs"
+    },
+    {
+      "Sid": "ReadOpenAIKey",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:us-east-1:985100584614:secret:training-analysis/openai*"
+    },
+    {
+      "Sid": "StopSelfWhenIdle",
+      "Effect": "Allow",
+      "Action": "ec2:StopInstances",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"ec2:ResourceTag/Role": "training-audit-worker"}}
+    }
+  ]
+}

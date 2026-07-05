@@ -45,14 +45,6 @@ STATUS_INFO = {
     "not_covered": ("✗ Not covered", "bad"),
 }
 
-PRESENTATION_ROWS = [
-    ("attire",                "Clothing",                "interview_appropriate"),
-    ("grooming_hair",         "Hair & grooming",         "tidy_for_interview"),
-    ("posture_body_language", "Posture & body language", "upright_and_engaged"),
-    ("background",            "Background",              "neutral_and_professional"),
-    ("camera_setup",          "Camera position",         "eye_level_and_framed"),
-    ("lighting",              "Lighting",                "adequate"),
-]
 
 TIER_STYLE = {  # tier -> (css class, banner subtitle)
     "Clean":     ("ok",   "No serious concerns found — routine spot-check only."),
@@ -150,7 +142,6 @@ def render(result: dict) -> str:
         _description_card(result),
         _flags_card(result),
         _coverage_card(result),
-        _presentation_card(result),
         _video_card(result),
         f"<footer>Generated from result.json · analyzed {_e(meeting.get('analyzed_at', ''))[:19].replace('T', ' ')} UTC"
         f" · full evidence in the <b>proof/</b> folder</footer>",
@@ -354,34 +345,6 @@ def _coverage_card(result):
             f"<table class='cov'><tr><th>Topic</th><th>Taught?</th><th>Time spent</th><th>Evidence</th></tr>{trs}</table>"
             f"{link}</section>")
 
-
-def _presentation_card(result):
-    pres = result.get("candidate_presentation") or {}
-    if not pres.get("enabled") or pres.get("error"):
-        return ""
-    if pres.get("person_visible") is False:
-        return ("<section class='card'><h2>👤 Candidate on camera</h2>"
-                f"<div class='note'>{_e(pres.get('note') or 'The candidate was not clearly visible on camera.')}</div></section>")
-    trs = ""
-    for key, label, ok_key in PRESENTATION_ROWS:
-        block = pres.get(key)
-        if not isinstance(block, dict):
-            continue
-        ok = block.get(ok_key)
-        chip = ("<span class='chip ok'>✓ Good</span>" if ok is True
-                else "<span class='chip warn'>⚠ Could improve</span>" if ok is False
-                else "<span class='chip na'>— Unclear</span>")
-        trs += (f"<tr><td>{_e(label)}</td><td>{chip}</td>"
-                f"<td style='color:#475569'>{_e(block.get('observation'))}</td></tr>")
-    tips = "".join(f"<li>{_e(t)}</li>" for t in (pres.get("coaching_suggestions") or []) if t)
-    tips_html = f"<b>Suggestions for the candidate:</b><ul style='margin:4px 0 0 20px'>{tips}</ul>" if tips else ""
-    imgs = _thumbs([p for p in (pres.get("proof") or []) if p.lower().endswith(_IMG_EXT)])
-    overall = f"<div class='quote'>{_e(pres.get('overall_notes'))}</div>" if pres.get("overall_notes") else ""
-    return ("<section class='card'><h2>👤 Candidate on camera (coaching feedback)</h2>"
-            "<div class='lead'>How the candidate appeared on camera. This is feedback for coaching only — "
-            "<b>it does not change any score</b>.</div>"
-            f"{overall}<table class='cov'><tr><th>Check</th><th>Result</th><th>What we saw</th></tr>{trs}</table>"
-            f"<div style='margin-top:10px;font-size:13.5px'>{tips_html}</div>{imgs}</section>")
 
 
 def _video_card(result):

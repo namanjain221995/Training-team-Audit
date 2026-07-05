@@ -33,7 +33,7 @@ PROXY_SINGLE = (-5, "medium")  # proxy mentioned exactly once in the whole sessi
 # stored in flags for exactly that reason.
 
 
-def assemble(meta: dict, transcript: dict, video: dict, presentation: dict | None, cfg) -> dict:
+def assemble(meta: dict, transcript: dict, video: dict, cfg) -> dict:
     deductions = []
     flags = []
 
@@ -152,7 +152,7 @@ def assemble(meta: dict, transcript: dict, video: dict, presentation: dict | Non
     return {
         "meeting": meta,
         "summary": _summary(meta, cov, coverage, integrity, applied,
-                            presentation, planned_min, actual_min),
+                            planned_min, actual_min),
         "meeting_description": description,
         "scoring": {
             "trainer_coverage_score": coverage,
@@ -161,13 +161,12 @@ def assemble(meta: dict, transcript: dict, video: dict, presentation: dict | Non
             "deductions": applied,
         },
         "flags": flags,
-        "candidate_presentation": presentation or {"enabled": False},
         "transcript": transcript,
         "video": video,
     }
 
 
-def _summary(meta, cov, coverage, integrity, applied, presentation,
+def _summary(meta, cov, coverage, integrity, applied,
              planned_min, actual_min) -> dict:
     """Plain-language read of the whole result, for humans skimming result.json."""
     rows = [c for c in (cov.get("coverage") or []) if isinstance(c, dict)]
@@ -183,14 +182,6 @@ def _summary(meta, cov, coverage, integrity, applied, presentation,
             line += f" — at ~{d['approx_time']}"
         red_flags.append(line)
 
-    pres_line = "not analyzed"
-    if isinstance(presentation, dict) and presentation.get("enabled"):
-        if presentation.get("person_visible") is False:
-            pres_line = presentation.get("note") or "candidate not clearly visible on camera"
-        else:
-            pres_line = (presentation.get("overall_notes") or presentation.get("note")
-                         or presentation.get("error") or "see candidate_presentation block")
-
     return {
         "session": f"Day {meta.get('day')} — {meta.get('day_title')} "
                    f"(label: {meta.get('day_step_name')})",
@@ -201,7 +192,6 @@ def _summary(meta, cov, coverage, integrity, applied, presentation,
                             f"{n_miss} not covered of {total_planned} planned sections",
         "session_integrity": f"{integrity}/100 ({_tier(integrity)})",
         "red_flags": red_flags or ["none"],
-        "candidate_presentation": pres_line,
         "proof_folder": "proof/ (one folder per red flag, with frames and quotes)",
     }
 

@@ -9,7 +9,7 @@ Local, Dockerised tool that audits a recorded training session and writes a
 roughly the allotted minutes), how the talk-time split, whether other languages were
 used, any integrity concerns in what was said, plus a **full meeting description**
 (narrative, minute-by-minute timeline, topics, notable quotes). Deterministic
-metrics + **two GPT-4o text calls**. (The optional presentation check below adds one
+metrics + **two GPT-4o text calls**.
 vision call — everything else is local.)
 
 **Video track — 100% local, open-source models, no GPU:**
@@ -19,11 +19,6 @@ vision call — everything else is local.)
   staring at a fixed off-screen point while answering).
 - **InsightFace `buffalo_l`** (ArcFace embeddings) → trainer-vs-candidate identity and
   whether the on-camera person changed mid-session (proxy swap).
-
-**Candidate presentation check** (optional, `ENABLE_PRESENTATION_ANALYSIS`) — one
-GPT-4o vision call on a few candidate frames: attire, grooming tidiness, posture,
-background, camera framing, lighting. **Descriptive and informational only** — it
-never changes the integrity score; it exists as coaching input for a human reviewer.
 
 Output: **trainer coverage %** (per-section, planned vs actually-spent minutes) and a
 **session integrity score /100** (Clean / Review / High-risk) — the integrity score
@@ -91,7 +86,7 @@ docker compose run --rm analyzer
 `result.json`, evidence `frames/`, the `proof/` folder, and **`report.html`** land in
 `./output/`. Open `report.html` in any browser for a plain-language view of the whole
 result — scores, red flags with their proof photos and quotes, per-topic coverage,
-and the candidate presentation feedback. Regenerate it from an existing result with
+and every red flag's receipts. Regenerate it from an existing result with
 `python -m analyzer.report output/result.json` (no Docker needed).
 
 ### Suggested first runs
@@ -116,7 +111,7 @@ Point at a folder elsewhere by editing the left side of the volume lines in
     "session", "duration",              // "10.8 of 120 planned minutes (9%)"
     "trainer_coverage", "session_integrity",
     "red_flags": ["scripted_deception (-20 pts): '...' — at ~10:10"],
-    "candidate_presentation", "proof_folder"
+    "proof_folder"
   },
 
   "scoring": {
@@ -150,11 +145,6 @@ Point at a folder elsewhere by editing the left side of the volume lines in
     }
   },
 
-  "candidate_presentation": {           // informational only — never scores
-    "attire", "grooming_hair", "posture_body_language", "background",
-    "camera_setup", "lighting", "overall_notes", "coaching_suggestions",
-    "frames_used", "proof": ["proof/candidate_presentation/..."]
-  },
 
   "video": {
     "enabled": true,
@@ -190,3 +180,44 @@ ratios once. Averaging per-chunk percentages gives wrong numbers.
   webcam is inherently noisy.
 - If the build hits an OpenCV import clash (MediaPipe vs InsightFace both pull OpenCV),
   rebuild with `docker compose build --no-cache`; the pinned versions are chosen to avoid it.
+
+---
+
+## Production — EC2 worker (SQS → analyze → S3)
+
+The same pipeline runs unattended on an EC2 instance:
+
+```
+Lambda writes training-temp.json + enqueues job ──▶ SQS training-analysis-jobs
+Lambda also calls ec2:StartInstances (wakes the worker if it was stopped)
+        ──▶ worker (systemd) long-polls the queue
+             1. downloads MP4 / VTT / training-temp.json from the meeting's S3 prefix
+                (the trainer reference photo comes from the repo's trainer/ folder)
+             2. runs the analyzer in a per-job temp dir (nothing persists on the instance)
+             3. uploads result.json, report.html, analysis-video.mp4 and proof/ BACK TO THE SAME PREFIX
+             4. re-merges {date}/session-result-{meeting_id}.json across all chunks of that meeting
+        ──▶ queue empty for IDLE_MINUTES → worker stops its own instance
+```
+
+**Setup (once):** launch Ubuntu 22/24, then
+`sudo bash deploy/setup-ec2.sh https://github.com/<you>/<repo>.git`, edit
+`/opt/training-audit/.env`, attach the role from `deploy/iam-worker-policy.json`
+(+ `AmazonSSMManagedInstanceCore`), tag the instance `Role=training-audit-worker`,
+and apply `deploy/lambda-start-worker.md` to the Lambda.
+
+**Trainer photos:** commit `trainer/<Trainer_Name>.png` (folder-style name, e.g.
+`Naghma_Akhtar.png`) — the worker picks them up from the repo on every deploy
+(`git pull`), no S3 upload needed. Without a photo for a trainer, identity runs
+in reduced mode (person-count only, no trainer/candidate attribution).
+
+**CI/CD:** pushing to `main` runs `.github/workflows/deploy.yml` — it starts the
+instance, pulls the latest code via SSM, restarts the service, and lets the
+instance idle-stop again. Every service start also self-updates
+(`deploy/self-update.sh`), so even a plain Lambda wake boots the newest code.
+
+**Reprocess one meeting by hand:**
+```bash
+/opt/training-audit/.venv/bin/python -m worker.worker --once \
+  --bucket zoom-automation-bucket \
+  --prefix "Training/Trainer/2026/July/Candidate/2026-07-01/Time-7-07-PM-IST/97783959572/"
+```

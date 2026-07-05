@@ -14,3 +14,6 @@ insightface==0.7.3
 # ships `solutions` AND already uses protobuf 4, so it stays compatible with onnx/onnxruntime.
 # Do NOT loosen this to a range — a floating upper bound is exactly what broke the build.
 mediapipe==0.10.18
+
+# EC2 worker (SQS/S3/EC2/SecretsManager)
+boto3>=1.34.0

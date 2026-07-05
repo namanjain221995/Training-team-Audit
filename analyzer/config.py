@@ -40,7 +40,7 @@ def _float(name: str, default: float) -> float:
 
 @dataclass
 class Config:
-    # OpenAI (transcript reasoning + presentation vision)
+    # OpenAI (transcript reasoning)
     openai_api_key: str = ""
     openai_model:   str = "gpt-4o"
     # reasoning models (gpt-5.x / o*) only: none|low|medium|high|xhigh; blank = model default
@@ -70,9 +70,6 @@ class Config:
     save_frames:         bool = True
     model_cache_dir:     str = CACHE_DIR
     identity_sample_sec: int = 20
-
-    # Candidate presentation check (GPT-4o vision; informational only)
-    enable_presentation: bool = True
 
     # Annotated "what the models saw" video (local rendering + ffmpeg encode)
     save_analysis_video: bool = True
@@ -121,7 +118,6 @@ def load_config() -> Config:
         save_frames=_bool("SAVE_EVIDENCE_FRAMES", True),
         identity_sample_sec=_int("IDENTITY_SAMPLE_SEC", 20),
 
-        enable_presentation=_bool("ENABLE_PRESENTATION_ANALYSIS", True),
         save_analysis_video=_bool("SAVE_ANALYSIS_VIDEO", True),
 
         output_path=os.path.join(OUTPUT_DIR, output_file),

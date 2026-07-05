@@ -446,7 +446,7 @@ def _cluster(embs, thr=0.45):
 
 # ── orchestrator ────────────────────────────────────────────────────────────
 def run_video(frames: list[dict], segments: list[dict], roles: dict, cfg) -> tuple[dict, list[dict]]:
-    """Returns (video_result, presence). presence is reused by the presentation
+    """Returns (video_result, presence). presence is reused by the annotation
     check and the proof builder so faces aren't re-detected."""
     presence = detect_presence(frames)
     mark_track_breaks(presence)

@@ -19,8 +19,6 @@ A system that audits recorded **Zoom training sessions** for a staffing company
   camera off during answers, gaze fixed off-screen (reading tell), on-camera
   person changing mid-session (proxy swap), session far shorter than the day
   plan, and integrity concerns spotted in the transcript.
-- **Candidate presentation check** — descriptive, informational-only observations
-  (attire, grooming tidiness, posture, background, camera setup, lighting).
 - Two scores: `trainer_coverage_score` (%) and `session_integrity_score` (/100),
   plus a `proof/` folder holding the evidence behind every flag.
 
@@ -35,16 +33,8 @@ review; it does **not** make automated judgments about people.
 
 - Candidate video signals are **detection** signals: camera on/off, gaze /
   reading tell, and person-consistency (proxy swap).
-- **Candidate presentation check** (added 2026-07-02 at owner request): GPT-4o
-  vision describes ONLY controllable presentation factors the program itself
-  trains (Day 7 rubric: attire, grooming tidiness, posture/body language,
-  background, camera framing, lighting). Hard boundaries, enforced in the prompt
-  (`analyzer/presentation.py`): no comments on body shape, weight, skin, age,
-  ethnicity, gender, or attractiveness; observations are **descriptive coaching
-  input for a human reviewer** and **never change the integrity score**
-  (`informational_only: true`).
+
 - Still out of scope: any automated scoring of a person's physical
-  characteristics, or using presentation observations in the integrity score.
 
 ## 3. System architecture (production, big picture)
 
@@ -79,12 +69,12 @@ piece**, and the code in this repo is the reference implementation for it.
 ```
 training-analysis/
 ├── analyzer/
-│   ├── __main__.py       # entrypoint: 5 steps — transcript, video, presentation, scoring, proof
+│   ├── __main__.py       # thin CLI: load_config() -> api.run()
+│   ├── api.py            # programmatic build_config()/run() — used by the EC2 worker
 │   ├── config.py         # env + training-temp.json → Config; builds container paths
 │   ├── openai_client.py  # GPT-4o wrapper (text + vision), with MOCK_OPENAI stub mode
 │   ├── transcript.py     # VTT parse / Whisper fallback, metrics, GPT-4o coverage + integrity
 │   ├── video.py          # frames + MediaPipe (presence, gaze) + InsightFace (identity/swap)
-│   ├── presentation.py   # GPT-4o vision candidate presentation check (informational only)
 │   ├── proof.py          # builds output/proof/ — evidence folder per red flag
 │   ├── report.py         # renders result.json → output/report.html (non-technical view;
 │   │                     #  pure stdlib: `python -m analyzer.report output/result.json` on host)
@@ -134,18 +124,12 @@ training-analysis/
 - Cost control: MediaPipe runs on every frame; InsightFace only every
   `IDENTITY_SAMPLE_SEC` seconds of face-visible video.
 - `run_video` returns `(result, presence)` — presence is reused by the
-  presentation check and proof builder.
 
-**Presentation check** (`presentation.py`) — one GPT-4o vision call on ≤4 frames
-picked locally from candidate-speaking, face-on-screen moments. See §2 for its
-boundaries. Toggle with `ENABLE_PRESENTATION_ANALYSIS`.
 
 **Proof folder** (`proof.py`) — after scoring, every applied deduction gets
 `output/proof/<reason>/` containing `proof.txt` (quote, timestamp, numbers) and
 evidence frames (detector-named frames, or frames nearest the quoted moment for
 transcript flags). Also writes `section_coverage/coverage_report.txt` (per-section
-plan-vs-spent table) and `candidate_presentation/` (assessed frames +
-observations). Deductions/flags in result.json carry `proof` path lists. Proof is
 built BEFORE the optional `SAVE_EVIDENCE_FRAMES=false` cleanup so copies survive.
 
 ### Scoring (`scoring.py`)
@@ -176,12 +160,10 @@ minutes are stored in the flag for that purpose).
 `meeting` (video_file, meeting_id, day, day_title [from rubric], day_step_name
 [from Salesforce/temp], trainer_name, candidate_name, s3_prefix, s3_bucket,
 duration_sec, config_source) · **`summary`** (plain-language: session, duration
-vs plan, coverage line, integrity line, red_flags[], presentation line) ·
 **`meeting_description`** (overview narrative, timeline[], topics_discussed[],
 trainer/candidate summaries, notable_quotes[], available) ·
 `scoring` (the two scores, tier, deductions[] each with `proof` paths) ·
 `flags[]` (flat list of everything that fired, with `proof`) ·
-**`candidate_presentation`** (informational vision observations + frames_used) ·
 `transcript` (source, metrics {talk_time, language, speaker_roles},
 coverage_analysis incl. per-section expected vs approx_minutes_spent + `proof`) ·
 `video` (presence seconds, camera{} per role, vision{gaze[], consistency}) ·
@@ -312,7 +294,6 @@ cheaper), `OPENAI_REASONING_EFFORT` (gpt-5.x/o* only: none..xhigh),
 `training-temp.json`) · `DAY_NUMBER`, `TRAINER_NAME`, `CANDIDATE_NAME` (ignored if
 a temp file is present) · `ENABLE_VIDEO_ANALYSIS`, `FRAME_FPS`,
 `IDENTITY_SAMPLE_SEC`, `WHISPER_MODEL`, `SAVE_EVIDENCE_FRAMES` ·
-`ENABLE_PRESENTATION_ANALYSIS` (informational vision check) · `OUTPUT_FILE`.
 
 ## 11. Remaining work / roadmap
 
@@ -351,13 +332,45 @@ a temp file is present) · `ENABLE_VIDEO_ANALYSIS`, `FRAME_FPS`,
   reflect who was on screen when speaking, not a continuous both-faces track. High
   `screen_share_or_noface_sec` is normal for screen-share-heavy sessions.
 - **Whisper has no speaker diarization** — without a VTT, talk-time-per-role,
-  per-answer gaze, and presentation frame-picking degrade (frames may show the
   trainer). Prefer the Zoom VTT.
 - **Person-consistency needs a trainer reference image** to reliably separate
   trainer vs candidate; without it, it reports the count of distinct identities
   (2 = trainer + candidate is normal).
 - Vision signals (gaze especially) are **flags for human review, not verdicts.**
-  The presentation check is coaching input, never a score.
 - langdetect misfires on very short segments (“Yeah, yeah” → id); harmless below
   the 120s threshold but don't trust single flagged lines.
 - Keep new code in the existing module layout; prefer complete, runnable files.
+
+
+## Production mode — EC2 worker (worker/)
+
+```
+worker/worker.py   SQS long-poll loop. Per job: download MP4/VTT/temp-json/trainer
+                   photo from the meeting prefix -> analyzer.api.run() in a per-job
+                   temp dir -> upload result.json + report.html + analysis-video.mp4
+                   + proof/ back to the SAME prefix -> re-merge the session file.
+                   Queue empty for IDLE_MINUTES -> stops its own instance
+                   (Lambda's wake_worker() starts it per job — deploy/lambda-start-worker.md).
+worker/merge.py    session merge across chunks of one meeting_id+date:
+                   MERGE_STRATEGY=stitch (sum raw seconds, union coverage/flags,
+                   re-score via scoring.assemble) | longest (drop false starts).
+                   Output: {date}/session-result-{meeting_id}.json
+deploy/            setup-ec2.sh (bootstrap) · training-worker.service (systemd;
+                   ExecStartPre self-update) · deploy.sh (CI entry) ·
+                   iam-worker-policy.json · lambda-start-worker.md
+.github/workflows/deploy.yml   push to main -> start instance -> SSM deploy.sh
+                   -> instance idle-stops itself.
+```
+
+Storage rule: the instance keeps NOTHING per meeting — each job runs in a temp
+dir that is deleted in a `finally`; outputs live only in S3 at the meeting
+prefix. Only the model cache (MODEL_CACHE_DIR) persists, by design.
+
+Trainer photos convention: the repo's `trainer/` folder — `trainer/<Trainer_Name>.png|.jpg`
+(folder-style name as used in the S3 prefix / SQS job, e.g. Divya_Prajapati.png).
+Photos are COMMITTED to git and ship to the worker with every `git pull` — there is
+no S3 download for them. Lookup: exact filename first, then case-insensitive stem
+(`worker._find_trainer_photo`); `TRAINER_PHOTOS_DIR` env overrides the folder.
+Adding a new trainer = drop the photo in `trainer/` and push.
+
+Manual reprocess: `python -m worker.worker --once --bucket <b> --prefix <meeting prefix>`.

@@ -9,9 +9,6 @@ Layout (under /data/output/proof, i.e. ./output/proof on the host):
       frame_*.jpg                    evidence frames (from the video, if any)
     section_coverage/
       coverage_report.txt            per-section: status, planned vs spent minutes, quote
-    candidate_presentation/
-      observations.txt               the vision observations + coaching suggestions
-      frame_*.jpg                    the frames that were assessed
 
 Each result.json deduction gains a "proof" list of paths (relative to output/)
 pointing at its receipts. Runs before the optional frames-dir cleanup so the
@@ -47,10 +44,6 @@ def build(result: dict, cfg, frames: list[dict]) -> None:
     if cov.get("coverage"):
         path = _coverage_report(cov, meeting, root)
         cov["proof"] = path
-
-    pres = result.get("candidate_presentation")
-    if isinstance(pres, dict) and pres.get("enabled"):
-        pres["proof"] = _presentation_proof(pres, root, frame_paths)
 
     result["proof_dir"] = "proof/"
 
@@ -126,23 +119,6 @@ def _coverage_report(cov: dict, meeting: dict, root: str) -> str:
     return "proof/section_coverage/coverage_report.txt"
 
 
-# ── candidate presentation ───────────────────────────────────────────────────
-def _presentation_proof(pres: dict, root: str, frame_paths: dict) -> list[str]:
-    sub = os.path.join(root, "candidate_presentation")
-    os.makedirs(sub, exist_ok=True)
-    paths = []
-    for name in (pres.get("frames_used") or []):
-        src = frame_paths.get(name)
-        if src and os.path.exists(src):
-            shutil.copy2(src, os.path.join(sub, name))
-            paths.append(f"proof/candidate_presentation/{name}")
-    obs = {k: v for k, v in pres.items() if k not in ("proof",)}
-    _write(os.path.join(sub, "observations.txt"),
-           "CANDIDATE PRESENTATION (informational only — does NOT affect the integrity score)\n\n"
-           + json.dumps(obs, indent=2, ensure_ascii=False) + "\n")
-    paths.append("proof/candidate_presentation/observations.txt")
-    return paths
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 def _readme(result: dict) -> str:
@@ -158,7 +134,6 @@ def _readme(result: dict) -> str:
         "One folder per red flag, each holding proof.txt (the quote/numbers that\n"
         "triggered it) and any evidence frames from the video.\n"
         "section_coverage/ holds the per-section coverage vs the day plan.\n"
-        "candidate_presentation/ holds the (informational) presentation check.\n"
     )
 
 
