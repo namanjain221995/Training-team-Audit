@@ -80,8 +80,9 @@ training-analysis/
 │   │                     #  pure stdlib: `python -m analyzer.report output/result.json` on host)
 │   └── scoring.py        # weighted deductions → integrity score; coverage score; summary; tiers
 ├── config/
-│   └── day_plan.json     # the 10-day rubric; details carry the FULL "Trainer Focus / Key
-│                         #  Details" text from Training Plan (4).pdf (rebuilt 2026-07-02)
+│   └── day_plan.json     # the 5-day (1-week) rubric; each section's detail carries the FULL
+│                         #  "Trainer Focus / Key Details" text + a key_points checklist, from
+│                         #  New_1_Week_Training_Plan_Final_16_Deliverables.pdf (rebuilt 2026-08-26)
 ├── input/                # drop the video (+ optional .vtt, training-temp.json) here
 ├── output/               # result.json + frames/ + proof/ land here
 ├── trainer/              # optional trainer reference face image
@@ -184,8 +185,8 @@ mirrors production, where the EC2 worker gets the same fields from the SQS job.
   "bucket": "zoom-automation-bucket",
   "candidate": "Abhinaya_Sree_-_Talluri",
   "trainer": "Divya_Prajapati",
-  "day": 8,
-  "day_step_name": "Day 8 - Coding and support during coding interview",
+  "day": 2,
+  "day_step_name": "Day 2 - Project Scenario Defense, PUD Understanding and Career Flow",
   "video_ready": true, "transcript_ready": true, "enqueued": true,
   "created_at": "...", "enqueued_at": "..."
 }
@@ -197,22 +198,38 @@ failed), the analyzer falls back to `DAY_NUMBER`.
 
 ## 6. `config/day_plan.json` — the rubric
 
-Keyed by day number ("1".."10"). Each day: `title`, `total_minutes`, and
-`sections[]` where each section has `name`, `detail`, `planned_start`,
-`planned_end`, `expected_minutes`. The **`day` number** selects which rubric to
-audit against; times are treated as *expected emphasis* (to flag rushed heavy
-sections), NOT a rigid schedule — real sessions run out of order.
+Keyed by day number ("1".."5"). Each day: `title`, `total_minutes` (120 for all
+five days), and `sections[]` where each section has `name`, `detail`,
+`planned_start`, `planned_end`, `expected_minutes` (plus a `key_points` checklist
+and other per-day metadata the analyzer ignores). **The analyzer only consumes
+`name` + `detail` + `expected_minutes` per section** (and the day-level `title` +
+`total_minutes`); everything else is documentation. The **`day` number** selects
+which rubric to audit against; times are treated as *expected emphasis* (to flag
+rushed heavy sections), NOT a rigid schedule — real sessions run out of order.
 
-**2026-07-02:** `detail` fields now carry the complete "Trainer Focus / Key
-Details" text from the source `Training Plan (4).pdf`, so GPT-4o matches
-transcript content to sections by meaning.
+The rubric is the **1-Week Interview Readiness Training Plan** (5 training days,
+16 mandatory deliverables): Day 1 Pre-requisite + HR + Niche Core + Small Talk
+(2) · Day 2 Project Scenario Defense + PUD + Career Flow (6) · Day 3
+Tools/Technology + Team Structure + Resume-Based PUD (5) · Day 4 Persona
+Awareness + JD Mapping + Prompting + Resume-Based PUD (1) · Day 5 System Design
+Execution + Final Architecture Diagram (2). A top-level `_program` key holds
+program-wide metadata (deliverable counts, quality/auto-fail standards,
+old-vs-new comparison); it is not a day and is never looked up as one.
 
-> **Known mismatch (still open):** Salesforce `day_step_name` values differ from
-> the rubric titles per candidate (e.g. Day 8 rubric = "Active Listening and
-> Adaptive Discussion" vs Salesforce = "Day 8 - Coding and support during coding
-> interview"). The analyzer prints a warning and records both. If the Salesforce
-> step names reflect a *different real curriculum* (not just different labels),
-> the rubric must be reconciled with it.
+**2026-08-26 (5-day rebuild):** the program was compressed from 10 days to this
+5-day / 16-deliverable structure (source:
+`New_1_Week_Training_Plan_Final_16_Deliverables.pdf`). Each section's `detail`
+was rewritten to carry the complete "Trainer Focus / Key Details" text so GPT
+matches transcript content to sections by meaning (not by the trainer literally
+naming a section), and an explicit `key_points` array was added per section as a
+must-cover checklist. `expected_minutes` sum to 120 per day.
+
+> **Known mismatch (still open):** Salesforce `day_step_name` values can differ
+> from the rubric `title` (a different label, and possibly a different real
+> curriculum). The analyzer prints a warning (`sections_cfg_topic_mismatch`) and
+> records both `day_title` (from the rubric) and `day_step_name` (from
+> Salesforce/temp). If the Salesforce step names reflect a *different real
+> curriculum* (not just different labels), the rubric must be reconciled with it.
 
 ## 7. Salesforce integration (Lambda side)
 
@@ -222,7 +239,7 @@ SELECT Candidate_Training_Step__r.Name, Candidate__r.Name
 FROM Session__c
 WHERE External_Meeting_ID__c = '<meeting_id>' LIMIT 1
 ```
-The day number is parsed by regex from the step name ("Day 8 - ..." → 8). The
+The day number is parsed by regex from the step name ("Day 2 - ..." → 2). The
 worker will write the score/flags back to this `Session__c` record.
 
 > **Casing gotcha:** the Session field is `External_Meeting_ID__c` (uppercase ID),

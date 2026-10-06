@@ -73,6 +73,44 @@ def compute_metrics(segments: list[dict], cfg) -> dict:
         "talk_time": {**{k: round(v, 1) for k, v in talk.items()}, **ratios},
         "language": lang,
         "speaker_roles": roles,
+        "conversation_rhythm": _conversation_rhythm(segments),
+    }
+
+
+def _conversation_rhythm(segments: list[dict], min_silence: float = 7.0) -> dict:
+    """Pacing signals derived purely from the transcript timestamps (no AI):
+
+      - long_silences : gaps >= min_silence seconds where nobody is speaking
+      - overlaps       : stretches where two cues overlap in time (cross-talk)
+
+    Report-only context — these never touch either score. Each entry carries
+    start/end/dur in SECONDS so the report can make them click-to-seek.
+    """
+    segs = sorted((s for s in segments if (s.get("end") or 0) > (s.get("start") or 0)),
+                  key=lambda s: s["start"])
+    silences, overlaps = [], []
+    if segs:
+        cur_end = segs[0]["end"]
+        for s in segs[1:]:
+            gap = s["start"] - cur_end
+            if gap >= min_silence:
+                silences.append({"start": round(cur_end, 1), "end": round(s["start"], 1),
+                                 "dur": round(gap, 1)})
+            if s["start"] < cur_end:                         # cues overlap in time
+                ov = min(s["end"], cur_end) - s["start"]
+                if ov > 0.5:
+                    overlaps.append({"start": round(s["start"], 1),
+                                     "end": round(min(s["end"], cur_end), 1),
+                                     "dur": round(ov, 1)})
+            cur_end = max(cur_end, s["end"])
+    return {
+        "min_silence_sec": min_silence,
+        "silence_count": len(silences),
+        "total_silence_sec": round(sum(x["dur"] for x in silences), 1),
+        "long_silences": silences,
+        "overlap_count": len(overlaps),
+        "overlap_sec": round(sum(x["dur"] for x in overlaps), 1),
+        "overlaps": overlaps,
     }
 
 
@@ -109,34 +147,59 @@ def _assign_roles(segments: list[dict], cfg) -> dict:
     return roles
 
 
-def _language_flags(segments: list[dict], roles: dict) -> dict:
+def _language_flags(segments: list[dict], roles: dict,
+                    min_len: int = 25, min_prob: float = 0.90) -> dict:
+    """Detect genuinely non-English speech. langdetect misfires on short or
+    code-mixed lines, so we require BOTH a reasonable length AND high confidence
+    (top probability >= min_prob) before counting a line as non-English —
+    otherwise an English line tagged 'id'/'af' on a coin-flip would pollute the
+    totals and the samples. Each kept line carries its detected language +
+    confidence so the report can show them honestly."""
     try:
-        from langdetect import detect, DetectorFactory
+        from langdetect import detect_langs, DetectorFactory
         DetectorFactory.seed = 0
     except Exception:
         return {"available": False}
 
     non_en_sec = 0.0
+    by_role: dict = {}
     flagged = []
     for s in segments:
-        text = s["text"]
-        if len(text) < 20:
+        text = (s.get("text") or "").strip()
+        if len(text) < min_len:
+            continue
+        # langdetect confidently mislabels SHORT ENGLISH as French/Italian/etc.
+        # ("A non-functional requirement." -> fr 100%). It is only trustworthy on
+        # genuinely non-Latin scripts (Devanagari, Arabic, CJK, Tamil, Telugu...).
+        # For Latin-script text (incl. Hindi written in English letters) the
+        # reliable signal is the GPT trainer_non_english_pct, so we DON'T guess
+        # here — we only flag lines that actually contain a non-Latin script.
+        if not any(ord(c) > 0x2FF for c in text):
             continue
         try:
-            lang = detect(text)
+            langs = detect_langs(text)
         except Exception:
             continue
-        if lang != "en":
-            dur = max(0.0, s["end"] - s["start"])
-            non_en_sec += dur
-            if len(flagged) < 25:
-                flagged.append({
-                    "start": _sec_to_ts(s["start"]),
-                    "speaker_role": roles.get(s["speaker"], "unknown"),
-                    "lang": lang,
-                    "text": text[:120],
-                })
-    return {"available": True, "non_english_sec": round(non_en_sec, 1), "flagged_segments": flagged}
+        if not langs:
+            continue
+        top = langs[0]
+        if top.lang == "en" or top.prob < min_prob:
+            continue   # English, or low-confidence guess -> not counted
+        dur = max(0.0, s["end"] - s["start"])
+        non_en_sec += dur
+        role = roles.get(s["speaker"], "unknown")
+        by_role[role] = by_role.get(role, 0.0) + dur
+        if len(flagged) < 25:
+            flagged.append({
+                "start": _sec_to_ts(s["start"]),
+                "speaker_role": role,
+                "lang": top.lang,
+                "confidence": round(float(top.prob), 2),
+                "text": text[:180],
+            })
+    return {"available": True, "non_english_sec": round(non_en_sec, 1),
+            "non_english_sec_by_role": {k: round(v, 1) for k, v in by_role.items()},
+            "flagged_segments": flagged}
 
 
 # ── 3. Coverage + integrity (GPT-4o) ────────────────────────────────────────
@@ -161,10 +224,12 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
                   "still assess each section, but this signals the rubric may be for a different day.)\n\n"
                   if session_label else "")
     topics_block = _topics_block(topics)
-    section_list = "\n".join(
-        f"- {s['name']} (allotted ~{s.get('expected_minutes','?')} min): {s['detail']}"
-        for s in sections
-    )
+
+    def _fmt_section(s):
+        kp = s.get("key_points") or []
+        kp_txt = ("\n    key points to cover: " + "; ".join(str(k) for k in kp)) if kp else ""
+        return f"- {s['name']} (allotted ~{s.get('expected_minutes','?')} min): {s['detail']}{kp_txt}"
+    section_list = "\n".join(_fmt_section(s) for s in sections)
     user = (
         f"DAY TITLE: {sections_cfg.get('title','')}  "
         f"(planned total ~{sections_cfg.get('total_minutes','?')} min)\n\n"
@@ -177,18 +242,29 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
         "Match sections by MEANING using their descriptions, not by the trainer literally naming them. "
         "Do NOT penalise ordering or exact clock position — only whether it was covered, to what "
         "depth, and roughly how long. Quote the trainer's own words as evidence wherever possible.\n"
+        "The trainer will NOT announce topics and may cover them OUT OF ORDER; still match by meaning. "
+        "In depth_note, briefly say what the trainer actually covered for that section and which planned "
+        "key points were missing or only shallowly touched.\n"
+        "Also estimate what percentage (0-100) of the TRAINER's OWN speaking was NOT in "
+        "English (delivered in another language such as Hindi). Judge by the language of the "
+        "sentence: a sentence spoken mainly in another language counts as non-English EVEN IF "
+        "it contains English technical terms (API, database, function, etc.). Use 0 if the "
+        "trainer spoke entirely in English, and name the main non-English language.\n"
         "Respond with JSON of exactly this shape:\n"
         "{\n"
         '  "coverage": [\n'
         '    {"section": "<name>", "status": "covered|partial|not_covered", '
         '"depth_vs_allotted": "adequate|under_covered|not_applicable", '
         '"approx_minutes_spent": <number>, '
+        '"depth_note": "<=25 words: what the trainer covered and which key points were missing/shallow, or null", '
         '"evidence": "<=15 word quote or null", "approx_time": "mm:ss or null"}\n'
         "  ],\n"
         '  "integrity_flags": [\n'
         '    {"type": "proxy_interview_coaching|fabricated_experience|scripted_deception|other", '
         '"confidence": "low|medium|high", "evidence": "<=15 word quote", "approx_time": "mm:ss or null"}\n'
-        "  ]\n"
+        "  ],\n"
+        '  "trainer_non_english_pct": <0-100 number>,\n'
+        '  "trainer_non_english_language": "<language name, or null if all English>"\n'
         "}"
     )
     result = oa.chat_json(COVERAGE_SYSTEM, user)
@@ -205,6 +281,12 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
     iflags = result.get("integrity_flags") or []
     result["integrity_flags"] = [f for f in iflags if isinstance(f, dict)] \
         if isinstance(iflags, list) else []
+    # trainer non-English estimate (primary signal for trainer_non_english_heavy)
+    tp = result.get("trainer_non_english_pct")
+    result["trainer_non_english_pct"] = float(tp) if isinstance(tp, (int, float)) else None
+    tl = result.get("trainer_non_english_language")
+    result["trainer_non_english_language"] = (tl.strip() if isinstance(tl, str)
+        and tl.strip().lower() not in ("", "none", "null", "n/a", "english") else None)
 
     # Attach each section's allotted minutes. GPT may echo names loosely
     # ('GitHub Why Ladder' vs 'GitHub "Why Ladder"'), so match fuzzily and
@@ -303,8 +385,15 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         '     "plan_section": "<planned section NAME only (no description), or null>",\n'
         '     "on_curriculum": true|false}\n'
         "  ],\n"
-        '  "trainer_summary": "<2-3 sentences: QA view of what the trainer did and how>",\n'
-        '  "candidate_summary": "<2-3 sentences: QA view of what the candidate did and how>",\n'
+        '  "trainer_summary": "<4-6 sentences, detailed QA view of the trainer: delivery style and '
+        'clarity, how they structured the session, pacing, use of examples, how they handled the '
+        'candidate\'s questions, and concrete strengths AND weaknesses>",\n'
+        '  "candidate_summary": "<4-6 sentences, detailed QA view of the candidate: how actively they '
+        'participated, the questions they asked, understanding they demonstrated, where they struggled, '
+        'and overall engagement>",\n'
+        '  "trainer_fluency": <integer 1-10 rating the trainer\'s spoken fluency and clarity '
+        '(1 = very halting/unclear, 10 = highly fluent and articulate)>,\n'
+        '  "trainer_fluency_note": "<=20 words justifying the fluency rating>",\n'
         '  "notable_quotes": [{"time": "mm:ss", "speaker": "<who>", "quote": "<=20 word quote>"}]\n'
         "}\n"
         "topics: EVERY distinct topic in the meeting, in order, covering the whole session "
@@ -321,6 +410,10 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
     for key in ("timeline", "topics", "notable_quotes"):
         v = result.get(key)
         result[key] = [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+    fl = result.get("trainer_fluency")
+    result["trainer_fluency"] = int(fl) if isinstance(fl, (int, float)) and 1 <= fl <= 10 else None
+    fn = result.get("trainer_fluency_note")
+    result["trainer_fluency_note"] = fn.strip() if isinstance(fn, str) and fn.strip() else None
     result["available"] = bool(result.get("overview"))
     return result
 

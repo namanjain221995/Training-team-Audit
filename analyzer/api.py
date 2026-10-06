@@ -39,6 +39,9 @@ def build_config(
     day_step_name: str | None = None,
     s3_prefix: str | None = None,
     s3_bucket: str | None = None,
+    session_type: str | None = None,
+    person_change_grace_sec: int | None = None,
+    session_start_window_sec: int | None = None,
     config_dir: str | None = None,
     frames_work_dir: str | None = None,
     save_frames: bool = False,
@@ -79,6 +82,11 @@ def build_config(
         whisper_model=os.environ.get("WHISPER_MODEL", "base").strip(),
         save_frames=save_frames,
         identity_sample_sec=_int("IDENTITY_SAMPLE_SEC", 20),
+        session_type=(session_type or os.environ.get("SESSION_TYPE", "one_on_one").strip().lower() or "one_on_one"),
+        person_change_grace_sec=(person_change_grace_sec if person_change_grace_sec is not None
+                                 else _int("PERSON_CHANGE_GRACE_SEC", 120)),
+        session_start_window_sec=(session_start_window_sec if session_start_window_sec is not None
+                                  else _int("SESSION_START_WINDOW_SEC", 300)),
         save_analysis_video=_bool("SAVE_ANALYSIS_VIDEO", True),
         model_cache_dir=(model_cache_dir
                          or os.environ.get("MODEL_CACHE_DIR", "").strip()
@@ -198,6 +206,13 @@ def run(cfg: Config) -> int:
         "duration_sec": metrics["duration_sec"],
         "config_source": cfg.config_source,
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
+        # trainer attendance / lateness (from training-temp.json; None on local runs)
+        "scheduled_start": cfg.scheduled_start,
+        "scheduled_duration_min": cfg.scheduled_duration_min,
+        "trainer_join": cfg.trainer_join,
+        "trainer_late_min": cfg.trainer_late_min,
+        "host_email": cfg.host_email,
+        "participants": cfg.participants_timing,
     }
     result = scoring.assemble(meta, transcript_result, video_result, cfg)
 

@@ -71,6 +71,19 @@ class Config:
     model_cache_dir:     str = CACHE_DIR
     identity_sample_sec: int = 20
 
+    # Proxy-swap / person-change policy (session_type may come from Salesforce/temp)
+    session_type:             str = "one_on_one"   # "one_on_one" | "group"
+    person_change_grace_sec:  int = 120            # a 2nd on-screen person must exceed this (2 min) to deduct
+    session_start_window_sec: int = 300            # group: face seen within this window = expected participant
+
+    # Trainer attendance / lateness (computed by the Lambda, read from training-temp.json)
+    scheduled_start:         str | None = None     # ISO8601 UTC scheduled meeting start
+    scheduled_duration_min:  int | None = None
+    trainer_join:            str | None = None     # ISO8601 UTC earliest host join time
+    trainer_late_min:        float | None = None   # minutes the trainer (host) joined after scheduled start
+    host_email:              str | None = None     # host (trainer) email, used to tag the host row
+    participants_timing:     list | None = None    # [{name,email,join,leave,duration_sec}, ...]
+
     # Annotated "what the models saw" video (local rendering + ffmpeg encode)
     save_analysis_video: bool = True
 
@@ -117,6 +130,9 @@ def load_config() -> Config:
         whisper_model=os.environ.get("WHISPER_MODEL", "base").strip(),
         save_frames=_bool("SAVE_EVIDENCE_FRAMES", True),
         identity_sample_sec=_int("IDENTITY_SAMPLE_SEC", 20),
+        session_type=os.environ.get("SESSION_TYPE", "one_on_one").strip().lower() or "one_on_one",
+        person_change_grace_sec=_int("PERSON_CHANGE_GRACE_SEC", 120),
+        session_start_window_sec=_int("SESSION_START_WINDOW_SEC", 300),
 
         save_analysis_video=_bool("SAVE_ANALYSIS_VIDEO", True),
 
@@ -160,6 +176,16 @@ def _apply_training_temp(cfg: Config) -> None:
     cfg.day_step_name = t.get("day_step_name")
     cfg.s3_prefix     = t.get("prefix")
     cfg.s3_bucket     = t.get("bucket")
+    if t.get("session_type"):
+        cfg.session_type = str(t["session_type"]).strip().lower()
+
+    # trainer attendance / lateness (written by the Lambda; absent on local .env runs)
+    cfg.scheduled_start        = t.get("scheduled_start")
+    cfg.scheduled_duration_min = t.get("scheduled_duration_min")
+    cfg.trainer_join           = t.get("trainer_join")
+    cfg.trainer_late_min       = t.get("trainer_late_min")
+    cfg.host_email             = t.get("host_email")
+    cfg.participants_timing    = t.get("participants_timing")
 
     print(f"Loaded training-temp.json: meeting_id={cfg.meeting_id} day={cfg.day_number} "
           f"trainer={cfg.trainer_name!r} candidate={cfg.candidate_name!r}")

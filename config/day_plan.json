@@ -1,454 +1,810 @@
-{
-  "1": {
-    "title": "HR + Niche Core Readiness",
-    "total_minutes": 120,
-    "sections": [
       {
-        "name": "Program Orientation",
-        "detail": "Introduce trainer and explain the full program structure and expectations. Explain deliverables, milestones, and the interview-readiness objective.",
-        "planned_start": "0:00",
-        "planned_end": "0:20",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Readiness Validation",
-        "detail": "Verify environment readiness: Zoom, Google Docs, folders, recording setup, camera position, lighting, microphone clarity, internet stability.",
-        "planned_start": "0:20",
-        "planned_end": "0:35",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Interview Foundations",
-        "detail": "Teach interview discipline: posture, eye contact, gestures, pauses, calm delivery, and stop discipline. Introduce Answer Structure: Direct answer -> Brief explanation -> Stop. Introduce STAR structure: Situation -> Task -> Action -> Result. HR answers: 60-90 seconds. Technical answers: 2-3 minutes.",
-        "planned_start": "0:35",
-        "planned_end": "0:50",
-        "expected_minutes": 15
-      },
-      {
-        "name": "HR Question Coaching",
-        "detail": "Explain intent of HR questions, common mistakes, and structured answers using STAR. Emphasize honesty when the candidate does not know an answer.",
-        "planned_start": "0:50",
-        "planned_end": "1:20",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Niche Fundamentals",
-        "detail": "Teach core concepts and high-frequency interview topics using project-style explanations. Introduce Tool Explanation Method: 1. What the tool is 2. What problem it solves 3. Simple analogy 4. How it fits into the system.",
-        "planned_start": "1:20",
-        "planned_end": "1:50",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Explain practice expectations and structured preparation approach.",
-        "planned_start": "1:50",
-        "planned_end": "2:00",
-        "expected_minutes": 10
+        "_program": {
+          "title": "1-Week Interview Readiness Training Plan",
+          "subtitle": "Final Draft - 5 Training Days | 16 Mandatory Deliverables",
+          "purpose": "This document converts the old 10-day training structure into a compressed 1-week plan while retaining the required day-wise deliverables, evaluation gates, recording standards, and trainer/candidate responsibilities.",
+          "definition": "PUD means Project Understanding Document.",
+          "total_training_days": 5,
+          "total_deliverables": 16,
+          "deliverable_count_by_day": {"1": 2, "2": 6, "3": 5, "4": 1, "5": 2},
+          "key_updated_rules": [
+            {"area": "Project Scenarios", "rule": "All five project scenarios are mandatory Day 2 deliverables. The old plan already required one video per scenario, and the new plan preserves this requirement."},
+            {"area": "Project Scenario PPT-Style Explanation", "rule": "Trainers will prepare PPT-style explanation documents for live explanation. These are trainer-led teaching materials, not separately counted as deliverables."},
+            {"area": "Candidate Project Scenario Output", "rule": "After the live explanation, trainers provide the project scenario documents to candidates. Candidates prepare from those documents and create the five project scenario video deliverables."},
+            {"area": "Resume-Based Question Source Document", "rule": "The trainer provides a 60-question resume-based question document. This is source material for preparation and is not counted separately in the 16 deliverables."},
+            {"area": "Resume-Based PUD Outputs", "rule": "Candidates submit one 15-question Resume-Based PUD deliverable on Day 3 and one 15-question Resume-Based PUD deliverable on Day 4."}
+          ],
+          "quality_auto_fail_standards": [
+            {"standard": "No Reading / Prompts", "requirement": "Candidate should not read answers or use visible prompts during video deliverables."},
+            {"standard": "No Edited Takes", "requirement": "Deliverables should be continuous where video is required. Edited/stitched recordings should be rejected unless trainer approves due to technical issue."},
+            {"standard": "Ownership Honesty", "requirement": "Candidate must clearly define what they owned, influenced, and did not own. Over-claiming is a risk condition."},
+            {"standard": "Audio / Video Quality", "requirement": "Audio and video must be clear enough for evaluation. Poor quality requires re-recording."},
+            {"standard": "Timely Submission", "requirement": "Deliverables should be submitted before the next training day unless trainer gives an exception."},
+            {"standard": "Score / Quality Gate", "requirement": "Trainer can mark status as Pass, Partial, or Hold based on submission quality and readiness."}
+          ],
+          "old_vs_new_comparison": [
+            {"area": "Duration", "old": "10 days", "new": "5 days"},
+            {"area": "Prerequisites", "old": "Separate prerequisite checklist before training", "new": "Added into Day 1 label and Day 1 readiness validation"},
+            {"area": "Day 1", "old": "HR + Niche Core Readiness", "new": "Pre-requisite + HR + Niche Core Readiness + Small Talk Foundations"},
+            {"area": "Day 2", "old": "Project scenarios, STAR mastery, interview defense", "new": "All five project scenarios retained as mandatory deliverables + PUD explanation + intro/career flow"},
+            {"area": "Project Scenario Material", "old": "Scenario coaching and explanation", "new": "PPT-style scenario documents used in live session, then shared with candidates for video preparation"},
+            {"area": "Day 3", "old": "Tools, system thinking, team structure, resume defense", "new": "Tools/Technology 1, 2, 3 + Resume-Based PUD - 15 Questions + Team Structure Diagram"},
+            {"area": "Resume-Based Questions", "old": "Resume mock/interview-style practice", "new": "Trainer provides 60-question document; candidate submits 15-question PUD deliverables on Day 3 and Day 4"},
+            {"area": "Day 4", "old": "Prompt engineering and persona-based interview", "new": "Persona awareness + JD mapping + prompting + Resume-Based PUD - 15 Questions"},
+            {"area": "Day 5", "old": "JD-based interview, small talk, tools/technology", "new": "System design execution and final architecture deliverables"},
+            {"area": "System Design", "old": "Handled later in old plan", "new": "Moved into Day 5 as final walkthrough + diagram"},
+            {"area": "Final Deliverable Count", "old": "Old count spread across 10 days", "new": "16 mandatory deliverables across 5 days"}
+          ]
+        },
+        "1": {
+          "title": "Pre-requisite, HR, Niche Core Readiness and Small Talk Foundations",
+          "total_minutes": 120,
+          "deliverable_count": 2,
+          "day_objective": "Validate candidate readiness and build baseline interview strength through HR answers, niche fundamentals, small talk readiness, and delivery discipline.",
+          "prerequisites": [
+            {"area": "Stable Internet Connection", "requirement": "Reliable internet with no downloads, updates, or streaming in the background."},
+            {"area": "Getscreen Installed and Ready", "requirement": "Getscreen installed and signed in using the required account before the session begins."},
+            {"area": "Zoom Desktop App", "requirement": "Zoom installed on the laptop and candidate logged in before training."},
+            {"area": "Google Docs Access", "requirement": "Shared Google Doc opens properly in browser; phone app backup recommended."},
+            {"area": "Microphone Check", "requirement": "Microphone tested for clear audio before the session."},
+            {"area": "LAN Cable Connected", "requirement": "Mandatory. Training should not begin unless the laptop is connected through LAN cable."},
+            {"area": "Bluetooth Off", "requirement": "Bluetooth should be turned off to avoid accidental audio or device issues."},
+            {"area": "Notifications Off", "requirement": "Laptop notifications disabled to avoid interruptions."},
+            {"area": "Unnecessary Apps Closed", "requirement": "All apps not required for the session are closed."},
+            {"area": "Laptop Plugged In", "requirement": "Laptop connected to charger throughout the session."},
+            {"area": "Python Installed and Verified", "requirement": "Python installed and checked with a basic command-line test."},
+            {"area": "VS Code / Local IDE Ready", "requirement": "VS Code or another local IDE with Python environment installed and ready. Online compilers should be avoided."},
+            {"area": "GitHub Account Ready", "requirement": "Active GitHub account with at least one academic or personal project."},
+            {"area": "Docker / Node JS", "requirement": "Required only where relevant to candidate profile, especially frontend or full-stack profiles."},
+            {"area": "Pre-Watch Video Completed", "requirement": "Assigned preparation video completed before the batch starts."}
+          ],
+          "focus_areas": [
+            {"area": "Prerequisite Validation", "objective": "Confirm system, environment, tools, documents, and recording readiness."},
+            {"area": "HR Fundamentals", "objective": "Build structured, confident, interview-ready HR responses."},
+            {"area": "Niche Core Readiness", "objective": "Establish clarity on niche/core technical concepts and interview-style explanations."},
+            {"area": "Small Talk Basics", "objective": "Prepare the candidate to open interviews naturally and professionally."},
+            {"area": "Delivery and Confidence", "objective": "Improve tone, eye contact, posture, pauses, timing, and stopping discipline."}
+          ],
+          "sections": [
+            {
+              "name": "Prerequisite and Readiness Validation",
+              "detail": "Trainer verifies the candidate's complete environment, tooling, documents, and recording readiness before any teaching begins, and resolves any missing access on the spot rather than continuing with an unready setup. Confirm connectivity and hardware: a stable internet connection with no background downloads, updates, or streaming, and a LAN cable connected (this is mandatory — training should not begin on Wi-Fi alone). Confirm the session tools: Getscreen installed and signed in with the required account, the Zoom desktop app installed and logged in, the shared Google Doc opening correctly in the browser (with the phone app as a backup), a microphone tested for clear audio, and adequate camera and lighting. Confirm the machine is distraction-free: Bluetooth off, laptop notifications disabled, all unnecessary apps closed, and the laptop plugged into the charger. Confirm the development setup: Python installed and verified with a basic command-line test, VS Code or another local IDE with a working Python environment ready (online compilers should be avoided), an active GitHub account with at least one academic or personal project, and Docker/Node.js where relevant to the profile (especially frontend or full-stack). Confirm the assigned pre-watch preparation video was completed before the batch started.",
+              "key_points": [
+                "Stable internet, no background downloads/updates/streaming",
+                "LAN cable connected (MANDATORY — do not start on Wi-Fi only)",
+                "Getscreen installed and signed in with the required account",
+                "Zoom desktop app installed and candidate logged in",
+                "Shared Google Doc opens in browser (phone app backup)",
+                "Microphone tested for clear audio",
+                "Camera and lighting adequate",
+                "Bluetooth off; notifications off; unnecessary apps closed; laptop plugged in",
+                "Python installed and verified via a basic command-line test",
+                "VS Code / local IDE with Python ready (avoid online compilers)",
+                "GitHub account active with at least one academic/personal project",
+                "Docker / Node.js ready if relevant (frontend/full-stack)",
+                "Pre-watch preparation video completed",
+                "Resolve any missing access immediately before proceeding"
+              ],
+              "candidate_focus": "Confirm readiness and resolve missing access immediately.",
+              "planned_start": "0:00",
+              "planned_end": "0:20",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Program Orientation",
+              "detail": "Trainer walks the candidate through the full 1-week plan so expectations are unambiguous from the start. Explain the five-day structure and the sixteen mandatory deliverables, the per-day deliverable counts, the submission deadlines (each day's outputs are due before the next training day), the quality gates (each deliverable is marked Pass, Partial, or Hold), and the concrete consequences of missing or failing deliverables. Set the week-long quality and auto-fail standards up front: no reading or visible prompts during video deliverables, no edited or stitched takes (continuous recording required unless the trainer approves an exception for a technical issue), ownership honesty (the candidate must clearly state what they owned, influenced, and did not own — over-claiming is a risk condition), clear audio/video quality, and timely submission. Make sure the candidate understands how the plan and the exit gates work before any content is taught.",
+              "key_points": [
+                "Explain the 1-week / 5-day structure and 16 mandatory deliverables",
+                "Explain per-day deliverable counts and submission deadlines (before next day)",
+                "Explain quality gates: Pass / Partial / Hold",
+                "Explain consequences of missing or failing deliverables",
+                "Set auto-fail standards: no reading/prompts, no edited takes",
+                "Set ownership-honesty expectation (owned / influenced / did not own; no over-claiming)",
+                "Set audio/video quality and timely-submission expectations",
+                "Confirm the candidate understands the plan and expectations"
+              ],
+              "candidate_focus": "Confirm understanding of the plan and expectations.",
+              "planned_start": "0:20",
+              "planned_end": "0:35",
+              "expected_minutes": 15
+            },
+            {
+              "name": "Interview Foundations",
+              "detail": "Trainer demonstrates and coaches the delivery mechanics that underpin every interview answer, then has the candidate practice them. Cover professional posture, steady eye contact, and clean answer framing; the use of deliberate pauses instead of fillers; appropriate tone; respecting time limits; and a disciplined method for handling questions the candidate does not know (acknowledge, reason aloud, avoid bluffing). Reinforce the overall delivery-and-confidence goals: calm tone, eye contact, upright posture, controlled pauses, correct timing, and stopping cleanly rather than rambling. Have the candidate practice one or two short answers applying correct posture, framing, pauses, and a clean stop.",
+              "key_points": [
+                "Demonstrate posture, eye contact, and answer framing",
+                "Coach deliberate pauses (no fillers) and appropriate tone",
+                "Enforce time limits per answer",
+                "Teach handling unknowns without bluffing",
+                "Reinforce delivery: tone, eye contact, posture, pauses, timing, stopping discipline",
+                "Candidate practices 1-2 short answers with correct delivery"
+              ],
+              "candidate_focus": "Practice 1-2 short answers with correct delivery.",
+              "planned_start": "0:35",
+              "planned_end": "0:50",
+              "expected_minutes": 15
+            },
+            {
+              "name": "HR Questions",
+              "detail": "Trainer teaches how HR/behavioral questions are actually evaluated and coaches a repeatable answer structure. Explain the intent behind common HR questions (what the interviewer is really probing for), the required answer structure of a direct answer followed by a brief explanation and then a clean stop, the common variations of each question, the red flags interviewers watch for, and the common mistakes candidates make (rambling, over-explaining, no clear answer, negativity). Have the candidate practice selected HR answers aloud using the direct-answer / brief-explanation / clean-stop structure with correct timing.",
+              "key_points": [
+                "Explain HR question intent (what the interviewer is probing for)",
+                "Teach answer structure: direct answer -> brief explanation -> clean stop",
+                "Cover common variations of each HR question",
+                "Call out red flags and common mistakes (rambling, no clear answer, negativity)",
+                "Candidate practices selected HR answers aloud with structure and timing"
+              ],
+              "candidate_focus": "Practice selected HR answers aloud using structure and timing.",
+              "planned_start": "0:50",
+              "planned_end": "1:20",
+              "expected_minutes": 30
+            },
+            {
+              "name": "Niche Fundamentals",
+              "detail": "Trainer establishes clarity on the candidate's niche/core technical concepts and models the interview-style way to explain them. Explain the key niche concepts relevant to the candidate's profile with practical, concrete examples, and demonstrate the interview-style explanation flow: state the concept simply, give a real example, and keep the explanation to a focused two-to-three-minute flow. Emphasize concept correctness with simple language over jargon. Have the candidate attempt niche answers aloud and clarify any doubts as they arise.",
+              "key_points": [
+                "Explain key niche/core concepts for the candidate's profile",
+                "Use practical, concrete examples",
+                "Model interview-style explanation flow (concept -> example -> 2-3 minute flow)",
+                "Prioritize concept correctness and simple language over jargon",
+                "Candidate attempts niche answers aloud and clarifies doubts"
+              ],
+              "candidate_focus": "Attempt niche answers aloud and clarify doubts.",
+              "planned_start": "1:20",
+              "planned_end": "1:50",
+              "expected_minutes": 30
+            },
+            {
+              "name": "Small Talk and Homework Briefing",
+              "detail": "Trainer prepares the candidate to open interviews naturally and then briefs the Day 1 deliverables. Explain small-talk expectations: natural greetings, responding to 'How are you?', a professional interview opening, and smooth transitions into the substance of the interview. Then brief the two Day 1 deliverables and the recording rules: the HR Questions Recording (recommended 10-15 minutes) and the Niche Fundamentals Recording (recommended 15-20 minutes), each as a single continuous recording, with no notes or prompts, no retakes unless the trainer asks for a re-record due to an audio/video issue, and submission before Day 2. Confirm the candidate understands the homework, the recording rules, and the submission expectations.",
+              "key_points": [
+                "Explain small-talk expectations: greetings, 'How are you?', interview opening, transitions",
+                "Brief Day 1 deliverable 1: HR Questions Recording (10-15 min)",
+                "Brief Day 1 deliverable 2: Niche Fundamentals Recording (15-20 min)",
+                "State recording rules: single continuous, no notes/prompts, no retakes unless AV issue",
+                "State submission deadline: before Day 2",
+                "Confirm homework, recording rules, and submission expectations"
+              ],
+              "candidate_focus": "Confirm homework, recording rules, and submission expectations.",
+              "planned_start": "1:50",
+              "planned_end": "2:00",
+              "expected_minutes": 10
+            }
+          ],
+          "homework": [
+            {"task": "HR Question Practice", "time_required": "1-1.5 hours", "expected_output": "Practice HR answers with direct answer, brief explanation, and clean stop."},
+            {"task": "Niche Fundamentals Practice", "time_required": "1.5-2 hours", "expected_output": "Practice niche answers with concept clarity, examples, and 2-3 minute explanation flow."},
+            {"task": "Small Talk Practice", "time_required": "30 minutes", "expected_output": "Practice greetings, \"How are you?\", interview opening, and transitions."},
+            {"task": "Delivery Practice", "time_required": "30 minutes", "expected_output": "Focus on eye contact, pauses, tone, confidence, and stopping on time."}
+          ],
+          "deliverables": [
+            {"name": "HR Questions Recording", "owner": "Candidate", "format": "Video", "scope": "Recommended 10-15 minutes"},
+            {"name": "Niche Fundamentals Recording", "owner": "Candidate", "format": "Video", "scope": "Recommended 15-20 minutes"}
+          ],
+          "recording_submission_rules": [
+            {"rule": "Recording Type", "requirement": "Single continuous recording."},
+            {"rule": "Notes / Prompts", "requirement": "Not allowed."},
+            {"rule": "Retakes", "requirement": "Not allowed unless trainer asks for re-record due to audio/video issue."},
+            {"rule": "Submission Deadline", "requirement": "Before Day 2."}
+          ],
+          "evaluation_focus": [
+            {"area": "HR Answer Structure", "requirement": "Direct answer, short explanation, clear stop."},
+            {"area": "Niche Concept Clarity", "requirement": "Correct concepts with simple explanation and examples."},
+            {"area": "Confidence and Fluency", "requirement": "Calm, natural, professional delivery."},
+            {"area": "Small Talk Readiness", "requirement": "Natural opening tone and basic conversation control."},
+            {"area": "Interview Discipline", "requirement": "No reading, no rambling, no excessive pauses."}
+          ],
+          "exit_gate": {
+            "pass": "Both HR and Niche videos submitted and quality bar met.",
+            "partial": "Videos submitted but corrections needed.",
+            "hold": "Missing video, reading from notes, unclear audio/video, or major content issue."
+          }
+        },
+        "2": {
+          "title": "Project Scenario Defense, PUD Understanding and Career Flow",
+          "total_minutes": 120,
+          "deliverable_count": 6,
+          "day_objective": "Train the candidate to explain all five project scenarios, understand the Project Understanding Document, and deliver a strong introduction and career flow.",
+          "focus_areas": [
+            {"area": "Project Scenario Mastery", "objective": "Prepare all five mandatory project scenarios as video deliverables."},
+            {"area": "STAR Structure", "objective": "Convert project experience into Situation, Task, Action, Result format."},
+            {"area": "PUD Understanding", "objective": "Explain how the project should be understood, structured, and defended."},
+            {"area": "Ownership and Metrics", "objective": "Train the candidate to explain ownership, decisions, failures, and measurable impact."},
+            {"area": "Introduction and Career Flow", "objective": "Prepare a polished intro and career story for interviews."}
+          ],
+          "special_rules": [
+            {"item": "PPT-Style Scenario Documents", "rule": "Trainers create project scenario documents in PPT-style explanation format for live session explanation."},
+            {"item": "Candidate Handover", "rule": "After live explanation, trainers provide the documents to candidates for preparation."},
+            {"item": "Candidate Deliverable", "rule": "Candidates prepare from the provided documents and record one video for each project scenario."},
+            {"item": "Count Rule", "rule": "The PPT-style documents are training material. The five candidate videos are counted as deliverables."}
+          ],
+          "five_mandatory_project_scenarios": [
+            {"scenario": "Failure and Learning Story", "what_candidate_must_explain": "What failed, why it failed, how it was corrected, and what was learned."},
+            {"scenario": "Design Trade-Off / Decision Story", "what_candidate_must_explain": "Why a technical choice was made, alternatives considered, and trade-offs accepted."},
+            {"scenario": "System Failure and Recovery Story", "what_candidate_must_explain": "How a production/system issue was detected, handled, recovered, and prevented."},
+            {"scenario": "End-to-End Request Flow", "what_candidate_must_explain": "How one request moves through the system from user/client to backend, processing, data, response, logs, and monitoring."},
+            {"scenario": "Security / Compliance / Scope Boundary Story", "what_candidate_must_explain": "What the candidate implemented, influenced, and did not own. Candidate must avoid over-claiming."}
+          ],
+          "sections": [
+            {
+              "name": "Day 1 Review",
+              "detail": "Trainer reviews the candidate's Day 1 deliverables (the HR Questions Recording and the Niche Fundamentals Recording) and gives corrective feedback before new content starts. Assess and correct delivery quality, confidence, HR answer structure (direct answer, brief explanation, clean stop), niche concept clarity, and stopping discipline (no rambling). Point out specific corrections the candidate should carry forward.",
+              "key_points": [
+                "Review the HR Questions recording and the Niche Fundamentals recording",
+                "Correct delivery and confidence",
+                "Correct HR answer structure (direct answer -> brief explanation -> clean stop)",
+                "Correct niche concept clarity",
+                "Reinforce stopping discipline (no rambling)",
+                "Give specific corrections to carry forward"
+              ],
+              "candidate_focus": "Understand feedback and note corrections.",
+              "planned_start": "0:00",
+              "planned_end": "0:15",
+              "expected_minutes": 15
+            },
+            {
+              "name": "Project Interview Foundation",
+              "detail": "Trainer explains how project-based interviews are actually judged so the candidate understands the bar before preparing scenarios. Cover the dimensions interviewers score: depth of understanding, personal ownership, use of the STAR structure (Situation, Task, Action, Result), measurable metrics and impact, honest handling of failures, and the ability to withstand follow-up probing. Set the expectation that every project answer should demonstrate genuine ownership and quantifiable impact rather than vague team-level description.",
+              "key_points": [
+                "Explain how project interviews are judged",
+                "Depth of understanding",
+                "Personal ownership",
+                "STAR structure (Situation, Task, Action, Result)",
+                "Metrics and measurable impact",
+                "Honest handling of failures",
+                "Withstanding follow-up questions",
+                "Set expectation of genuine ownership over vague team-level description"
+              ],
+              "candidate_focus": "Understand project interview expectations.",
+              "planned_start": "0:15",
+              "planned_end": "0:30",
+              "expected_minutes": 15
+            },
+            {
+              "name": "Project Scenario Explanation - All Five",
+              "detail": "Trainer explains all five mandatory project scenarios live using the PPT-style scenario documents, covering for each one its intent, structure, worked examples, the rejection triggers that would fail it, and the must-include points. The five scenarios are: (1) Failure and Learning Story - what failed, why it failed, how it was corrected, and what was learned; (2) Design Trade-Off / Decision Story - why a technical choice was made, what alternatives were considered, and which trade-offs were accepted; (3) System Failure and Recovery Story - how a production/system issue was detected, handled, recovered, and prevented from recurring; (4) End-to-End Request Flow - how a single request moves through the system from user/client to backend, processing, data, response, logs, and monitoring; and (5) Security / Compliance / Scope Boundary Story - what the candidate implemented, what they only influenced, and what they did not own, while avoiding over-claiming. Teach how to convert real project experience into STAR format for each scenario. After the live explanation, the trainer hands the scenario documents to the candidate, who prepares from them and records one video per scenario (five video deliverables). Candidate maps their real project experience to each of the five scenarios.",
+              "key_points": [
+                "Explain all five scenarios live from the PPT-style documents",
+                "For each: cover intent, structure, examples, rejection triggers, must-include points",
+                "Scenario 1 - Failure and Learning: what failed, why, how corrected, what learned",
+                "Scenario 2 - Design Trade-Off/Decision: choice made, alternatives, trade-offs accepted",
+                "Scenario 3 - System Failure and Recovery: detected, handled, recovered, prevented",
+                "Scenario 4 - End-to-End Request Flow: client -> backend -> processing -> data -> response -> logs -> monitoring",
+                "Scenario 5 - Security/Compliance/Scope Boundary: implemented vs influenced vs did not own; no over-claiming",
+                "Teach STAR conversion for each scenario",
+                "Hand scenario documents to candidate for video preparation (5 video deliverables)",
+                "Candidate maps real project experience to each scenario"
+              ],
+              "candidate_focus": "Map real project experience to each scenario.",
+              "planned_start": "0:30",
+              "planned_end": "1:15",
+              "expected_minutes": 45
+            },
+            {
+              "name": "PUD Explanation",
+              "detail": "Trainer explains how to read and defend the Project Understanding Document (PUD) so the candidate can connect it directly to project defense. Cover how to articulate the project scope, its architecture, its modules/components, the stakeholders involved, the end-to-end data/flow, the key decisions made, and the measurable impact. Emphasize how a solid PUD understanding underpins credible, ownership-driven answers under follow-up questioning.",
+              "key_points": [
+                "Explain how to read and defend the PUD (Project Understanding Document)",
+                "Cover project scope",
+                "Cover architecture and modules/components",
+                "Cover stakeholders",
+                "Cover end-to-end flow",
+                "Cover key decisions",
+                "Cover measurable impact",
+                "Connect PUD understanding to project defense under follow-up questions"
+              ],
+              "candidate_focus": "Understand how PUD connects to project defense.",
+              "planned_start": "1:15",
+              "planned_end": "1:35",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Introduction and Career Flow",
+              "detail": "Trainer teaches a polished introduction and career-story structure the candidate can use to open interviews. Cover a clean structure for background, current role, core skills, a concise project summary, career movement/progression, and a strong closing. Coach the candidate to practice a concise, confident five-to-seven-minute introduction and career flow.",
+              "key_points": [
+                "Teach a structured introduction and career story",
+                "Background",
+                "Current role",
+                "Core skills",
+                "Concise project summary",
+                "Career movement / progression",
+                "Strong closing",
+                "Candidate practices a concise 5-7 minute career flow"
+              ],
+              "candidate_focus": "Practice a concise career flow.",
+              "planned_start": "1:35",
+              "planned_end": "1:50",
+              "expected_minutes": 15
+            },
+            {
+              "name": "Homework Briefing",
+              "detail": "Trainer briefs all six Day 2 deliverables and the recording rules. The six deliverables are the five project scenario videos (Failure and Learning; Design Trade-Off/Decision; System Failure and Recovery; End-to-End Request Flow; Security/Compliance/Scope Boundary, each recommended 5-8 minutes) plus the Introduction and Career Flow video (recommended 5-7 minutes). State the recording rules: one scenario per video, STAR format required, no notes or prompts during recording, no retakes unless the trainer requests one for a technical issue, and submission before Day 3.",
+              "key_points": [
+                "Brief all six Day 2 deliverables",
+                "Five project scenario videos (5-8 min each), one scenario per video",
+                "Introduction and Career Flow video (5-7 min)",
+                "STAR format required in each scenario video",
+                "No notes/prompts during recording; no retakes unless technical issue",
+                "Submission deadline: before Day 3",
+                "Confirm deliverables and deadlines"
+              ],
+              "candidate_focus": "Confirm deliverables and deadlines.",
+              "planned_start": "1:50",
+              "planned_end": "2:00",
+              "expected_minutes": 10
+            }
+          ],
+          "homework": [
+            {"task": "Review PPT-Style Scenario Documents", "time_required": "1 hour", "expected_output": "Understand all five trainer-provided scenario documents."},
+            {"task": "Scenario Mapping", "time_required": "1-1.5 hours", "expected_output": "Map real project examples to each of the five scenarios."},
+            {"task": "STAR Structuring", "time_required": "1-1.5 hours", "expected_output": "Prepare clear STAR flow for each scenario."},
+            {"task": "PUD Review", "time_required": "45-60 minutes", "expected_output": "Review project scope, components, architecture, data flow, and ownership."},
+            {"task": "Intro and Career Flow Practice", "time_required": "30-45 minutes", "expected_output": "Practice a 5-7 minute introduction and career flow."}
+          ],
+          "deliverables": [
+            {"name": "Project Scenario 1 - Failure and Learning Story", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-8 minutes"},
+            {"name": "Project Scenario 2 - Design Trade-Off / Decision Story", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-8 minutes"},
+            {"name": "Project Scenario 3 - System Failure and Recovery Story", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-8 minutes"},
+            {"name": "Project Scenario 4 - End-to-End Request Flow", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-8 minutes"},
+            {"name": "Project Scenario 5 - Security / Compliance / Scope Boundary Story", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-8 minutes"},
+            {"name": "Introduction and Career Flow", "owner": "Candidate", "format": "Video", "scope": "Recommended 5-7 minutes"}
+          ],
+          "recording_submission_rules": [
+            {"rule": "Project Scenario Format", "requirement": "One scenario per video."},
+            {"rule": "Structure", "requirement": "STAR format required."},
+            {"rule": "Notes / Prompts", "requirement": "Not allowed during recording."},
+            {"rule": "Retakes", "requirement": "Not allowed unless trainer requests due to technical issue."},
+            {"rule": "Submission Deadline", "requirement": "Before Day 3."}
+          ],
+          "evaluation_focus": [
+            {"area": "All Five Scenario Coverage", "requirement": "All five scenario videos must be submitted."},
+            {"area": "STAR Structure", "requirement": "Situation, Task, Action, Result must be clear."},
+            {"area": "Ownership", "requirement": "Candidate must explain what they personally owned."},
+            {"area": "Metrics and Impact", "requirement": "Candidate must include measurable impact wherever possible."},
+            {"area": "Scope Honesty", "requirement": "Candidate must not over-claim security, architecture, or leadership ownership."}
+          ],
+          "exit_gate": {
+            "pass": "All five project scenario videos and intro/career flow video submitted with quality bar met.",
+            "partial": "Videos submitted but gaps identified in ownership, STAR, metrics, or clarity.",
+            "hold": "Any mandatory scenario missing, scripted reading, over-claiming, or unclear project understanding."
+          }
+        },
+        "3": {
+          "title": "Tools/Technology Mastery, Team Structure and Resume-Based PUD Defense",
+          "total_minutes": 120,
+          "deliverable_count": 5,
+          "day_objective": "Build tools/technology explanation strength, clarify team structure, and complete the first 15-question resume-based PUD defense deliverable.",
+          "focus_areas": [
+            {"area": "Tools and Technology", "objective": "Candidate should explain tools listed on the resume clearly and confidently."},
+            {"area": "System Thinking", "objective": "Candidate should connect tools into the actual project/system flow."},
+            {"area": "Team Structure", "objective": "Candidate should understand team roles, reporting, collaboration, handoffs, and ownership boundaries."},
+            {"area": "Resume-Based PUD Defense", "objective": "Candidate should answer selected resume/PUD questions with clarity and ownership."},
+            {"area": "Ownership Clarity", "objective": "Candidate should avoid vague, borrowed, or exaggerated ownership claims."}
+          ],
+          "special_rules": [
+            {"item": "Trainer-Provided 60-Question Document", "rule": "Trainer provides a 60-question resume-based question document to the candidate."},
+            {"item": "Purpose", "rule": "The document is used for structured resume defense, PUD preparation, persona practice, and follow-up handling."},
+            {"item": "Count Rule", "rule": "The 60-question document is source material. Day 3 deliverables are the three tools/technology outputs, the 15-question Resume-Based PUD, and the Team Structure Diagram."},
+            {"item": "Day 4 Link", "rule": "The same 60-question document continues into Day 4 for the second 15-question Resume-Based PUD deliverable."}
+          ],
+          "sections": [
+            {
+              "name": "Day 2 Review",
+              "detail": "Trainer reviews all five project scenario videos plus the intro/career flow from Day 2 and gives corrective feedback. Check each scenario for a clear STAR structure, genuine ownership, measurable metrics and impact, honest handling of failures, a correct end-to-end request flow, and honest scope boundaries (no over-claiming). Note specific scenario gaps for the candidate to correct.",
+              "key_points": [
+                "Review all five project scenario videos",
+                "Check STAR structure in each scenario",
+                "Check ownership",
+                "Check metrics and impact",
+                "Check honest handling of failures",
+                "Check end-to-end request flow correctness",
+                "Check scope honesty (no over-claiming)",
+                "Note scenario gaps to correct"
+              ],
+              "candidate_focus": "Accept corrections and note scenario gaps.",
+              "planned_start": "0:00",
+              "planned_end": "0:20",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Tools Explanation Framework",
+              "detail": "Trainer teaches a repeatable framework for explaining any tool or technology from the resume. For each tool, the candidate should be able to state what it is, why it was used on the project, where it fits in the overall system, and how it helped (the concrete benefit or problem it solved). Emphasize plain, confident explanation without hesitation, and connecting each tool back to real project usage rather than textbook definitions. Candidate practices explaining a few selected tools simply.",
+              "key_points": [
+                "Teach a per-tool explanation framework",
+                "What the tool is",
+                "Why it was used on the project",
+                "Where it fits in the system",
+                "How it helped (concrete benefit / problem solved)",
+                "Connect each tool to real project usage, not textbook definitions",
+                "Candidate practices explaining selected tools simply and confidently"
+              ],
+              "candidate_focus": "Practice explaining selected tools simply.",
+              "planned_start": "0:20",
+              "planned_end": "0:40",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Tools and Technology Deep Dive",
+              "detail": "Trainer goes deep on the tools and technologies from the candidate's resume/project across three explanation areas, applying system thinking so each tool is connected into the actual project/system flow rather than described in isolation. Prepare the candidate for the three separate Tools & Technology deliverables by working through the assigned tool/technology areas and their project connections. Reinforce that the candidate must be able to explain major resume tools without hesitation and tie them to real usage.",
+              "key_points": [
+                "Explain resume/project tools and technology across three explanation areas",
+                "Apply system thinking: connect tools into the actual project/system flow",
+                "Prepare for three separate Tools & Technology deliverables",
+                "Explain major resume tools without hesitation",
+                "Tie each tool to real project usage and its contribution"
+              ],
+              "candidate_focus": "Prepare for three tools/technology deliverables.",
+              "planned_start": "0:40",
+              "planned_end": "1:10",
+              "expected_minutes": 30
+            },
+            {
+              "name": "Team Structure Explanation",
+              "detail": "Trainer explains how to describe the project team structure and the candidate's place within it. Cover the roles and their collaboration: product, frontend, backend, AI/ML, data, QA, DevOps, and security functions, plus the stakeholders, and clearly locate the candidate's own ownership boundary within that team. Cover reporting lines, collaboration patterns, and handoffs between roles. This directly supports the Team Structure Diagram deliverable, which must show team roles, the collaboration flow, and the candidate's ownership boundary.",
+              "key_points": [
+                "Explain team roles: product, frontend, backend, AI/ML, data, QA, DevOps, security",
+                "Explain stakeholders",
+                "Explain reporting lines, collaboration, and handoffs",
+                "Locate the candidate's own ownership boundary in the team",
+                "Support the Team Structure Diagram deliverable (roles, collaboration flow, ownership boundary)"
+              ],
+              "candidate_focus": "Understand team roles and collaboration.",
+              "planned_start": "1:10",
+              "planned_end": "1:30",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Resume-Based PUD Defense",
+              "detail": "Trainer provides and explains the 60-question resume-based question document (source material used across the week for structured resume defense, PUD preparation, persona practice, and follow-up handling) and practices selected questions with the candidate. Coach clear, ownership-driven answers that connect resume points to the PUD, and explicitly avoid vague, borrowed, or exaggerated ownership claims. Prepare the candidate to produce the 15-question Resume-Based PUD deliverable for Day 3. Note that the same 60-question document continues into Day 4 for the second 15-question deliverable.",
+              "key_points": [
+                "Provide and explain the trainer's 60-question resume-based document",
+                "Purpose: resume defense, PUD prep, persona practice, follow-up handling",
+                "Practice selected questions with clear ownership",
+                "Connect resume points to the PUD",
+                "Avoid vague, borrowed, or exaggerated ownership claims",
+                "Prepare the 15-question Day 3 Resume-Based PUD deliverable",
+                "Same document continues into Day 4 for the second 15-question deliverable"
+              ],
+              "candidate_focus": "Prepare the 15-question Day 3 PUD deliverable.",
+              "planned_start": "1:30",
+              "planned_end": "1:50",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Homework Briefing",
+              "detail": "Trainer briefs the five Day 3 deliverables and Day 4 preparation. The five deliverables are Tools & Technology Explanation 1, 2, and 3 (video or document per trainer preference, each explaining an assigned tool/technology area with its project connection), the Resume-Based PUD - 15 Questions (15 selected resume/PUD questions), and the Team Structure Diagram (must show team roles, collaboration flow, and the candidate's ownership boundary). State the submission rules: three separate tools outputs or three clearly separated sections per trainer preference, no notes/prompts during candidate recording, no retakes unless a technical issue, and submission before Day 4.",
+              "key_points": [
+                "Brief the five Day 3 deliverables",
+                "Tools & Technology Explanation 1, 2, 3 (each with project connection)",
+                "Resume-Based PUD - 15 Questions",
+                "Team Structure Diagram (roles, collaboration flow, ownership boundary)",
+                "Three separate tools outputs or three clearly separated sections",
+                "No notes/prompts; no retakes unless technical issue; submit before Day 4",
+                "Explain Day 4 preparation"
+              ],
+              "candidate_focus": "Confirm submission expectations.",
+              "planned_start": "1:50",
+              "planned_end": "2:00",
+              "expected_minutes": 10
+            }
+          ],
+          "homework": [
+            {"task": "Tools Explanation Practice", "time_required": "1.5-2 hours", "expected_output": "Prepare three tools/technology explanation deliverables."},
+            {"task": "Team Structure Diagram", "time_required": "45-60 minutes", "expected_output": "Create a clear diagram showing team roles, collaboration flow, and candidate ownership boundary."},
+            {"task": "Resume-Based 60-Question Review", "time_required": "1-1.5 hours", "expected_output": "Practice selected questions from the trainer-provided document."},
+            {"task": "Resume-Based PUD - 15 Questions", "time_required": "45-60 minutes", "expected_output": "Prepare 15 selected answers with PUD connection and ownership clarity."}
+          ],
+          "deliverables": [
+            {"name": "Tools & Technology Explanation 1", "owner": "Candidate", "format": "Video / Document, based on trainer preference", "scope": "Explain assigned tool/technology area with project connection."},
+            {"name": "Tools & Technology Explanation 2", "owner": "Candidate", "format": "Video / Document, based on trainer preference", "scope": "Explain assigned tool/technology area with project connection."},
+            {"name": "Tools & Technology Explanation 3", "owner": "Candidate", "format": "Video / Document, based on trainer preference", "scope": "Explain assigned tool/technology area with project connection."},
+            {"name": "Resume-Based PUD - 15 Questions", "owner": "Candidate", "format": "Video / Document, based on trainer preference", "scope": "15 selected resume/PUD questions."},
+            {"name": "Team Structure Diagram", "owner": "Candidate", "format": "Diagram / Image", "scope": "Must show team roles, collaboration flow, and candidate ownership boundary."}
+          ],
+          "recording_submission_rules": [
+            {"rule": "Tools Outputs", "requirement": "Three separate outputs or three clearly separated sections, based on trainer preference."},
+            {"rule": "Notes / Prompts", "requirement": "Not allowed during candidate recording."},
+            {"rule": "Retakes", "requirement": "Not allowed unless trainer requests due to technical issue."},
+            {"rule": "Submission Deadline", "requirement": "Before Day 4."}
+          ],
+          "evaluation_focus": [
+            {"area": "Tool Ownership", "requirement": "Candidate must explain major resume tools without hesitation."},
+            {"area": "Project Connection", "requirement": "Candidate must connect tools to actual project usage."},
+            {"area": "Team Awareness", "requirement": "Candidate must understand team roles and their contribution."},
+            {"area": "PUD Defense", "requirement": "Candidate must answer 15 resume/PUD questions with clear ownership."},
+            {"area": "Diagram Clarity", "requirement": "Team Structure Diagram must be readable and accurate."}
+          ],
+          "exit_gate": {
+            "pass": "All five Day 3 deliverables completed and quality bar met.",
+            "partial": "Deliverables submitted but explanation depth or ownership needs correction.",
+            "hold": "Candidate cannot explain resume tools, gives vague ownership, or mandatory deliverable is missing."
+          }
+        },
+        "4": {
+          "title": "Persona Awareness, JD Mapping, Prompting and Resume-Based PUD Defense",
+          "total_minutes": 120,
+          "deliverable_count": 1,
+          "day_objective": "Train the candidate to adapt answers by interviewer persona, map experience to job descriptions, use prompts for preparation, and complete the second 15-question Resume-Based PUD deliverable.",
+          "focus_areas": [
+            {"area": "Persona Awareness", "objective": "Teach how answers change by recruiter, hiring manager, and architect persona."},
+            {"area": "Resume-Based PUD", "objective": "Practice resume/project answers using PUD and the 60-question document."},
+            {"area": "JD Mapping", "objective": "Teach how to map project and resume experience to JD expectations."},
+            {"area": "Prompt Practice", "objective": "Teach prompts for interview preparation and follow-up questions."},
+            {"area": "Depth Control", "objective": "Candidate should explain the same facts at different levels of depth without changing facts."}
+          ],
+          "sections": [
+            {
+              "name": "Day 3 Review",
+              "detail": "Trainer reviews the Day 3 outputs and identifies remaining gaps before new content. Review the three Tools & Technology outputs, the Team Structure Diagram, and the Day 3 Resume-Based PUD 15-question answers. Note gaps in tool ownership, project connection, team awareness, ownership clarity, and explanation quality for the candidate to correct.",
+              "key_points": [
+                "Review the three Tools & Technology outputs",
+                "Review the Team Structure Diagram",
+                "Review the Day 3 Resume-Based PUD 15 questions",
+                "Note gaps in tools, ownership, and explanation clarity"
+              ],
+              "candidate_focus": "Note gaps in tools, ownership, and explanation clarity.",
+              "planned_start": "0:00",
+              "planned_end": "0:15",
+              "expected_minutes": 15
+            },
+            {
+              "name": "Persona Explanation",
+              "detail": "Trainer explains the three interviewer personas and what each evaluates: the recruiter (fit, communication, motivation, high-level clarity), the hiring manager (ownership, delivery, collaboration, impact), and the architect (technical depth, design reasoning, trade-offs). Teach depth control - the skill of explaining the same underlying facts at different levels of depth for different personas without ever changing the facts. Candidate practices adjusting depth (not content) across personas.",
+              "key_points": [
+                "Explain the recruiter persona and what it evaluates",
+                "Explain the hiring manager persona and what it evaluates",
+                "Explain the architect persona and what it evaluates",
+                "Teach depth control: same facts, different depth per persona",
+                "Never change the facts, only the depth",
+                "Candidate practices changing depth without changing facts"
+              ],
+              "candidate_focus": "Practice changing depth without changing facts.",
+              "planned_start": "0:15",
+              "planned_end": "0:40",
+              "expected_minutes": 25
+            },
+            {
+              "name": "Resume-Based PUD Practice",
+              "detail": "Trainer runs deeper resume/PUD defense practice using the resume, the PUD, and the trainer's 60-question document. Coach the candidate to answer selected questions with a clear structure and honest ownership, connecting project details to resume claims. This practice directly prepares the second 15-question Resume-Based PUD deliverable due for Day 4.",
+              "key_points": [
+                "Practice deeper defense using resume, PUD, and the 60-question document",
+                "Answer selected questions with clear structure and ownership",
+                "Connect project details to resume claims",
+                "Prepare the second 15-question Resume-Based PUD deliverable"
+              ],
+              "candidate_focus": "Answer selected questions using structure and ownership clarity.",
+              "planned_start": "0:40",
+              "planned_end": "1:05",
+              "expected_minutes": 25
+            },
+            {
+              "name": "JD Explanation",
+              "detail": "Trainer teaches how to read a job description and map real experience to it honestly. Cover how to parse a JD, identify the must-have requirements versus nice-to-haves, and align the candidate's real project and resume experience to those expectations without fabricating or over-claiming. Candidate practices mapping their resume/project points to a JD honestly.",
+              "key_points": [
+                "Teach how to read and parse a JD",
+                "Identify must-have requirements vs nice-to-haves",
+                "Align real project/resume experience to JD expectations",
+                "Map honestly without fabricating or over-claiming",
+                "Candidate practices mapping resume/project to a JD"
+              ],
+              "candidate_focus": "Practice mapping resume/project to JD honestly.",
+              "planned_start": "1:05",
+              "planned_end": "1:30",
+              "expected_minutes": 25
+            },
+            {
+              "name": "Prompt Practice",
+              "detail": "Trainer teaches how to use prompts to prepare for interviews. Cover writing prompts for mock interviews, persona-specific questions, JD-based practice, and follow-up questions, so the candidate can self-generate realistic practice. Candidate creates and tests their own interview practice prompts.",
+              "key_points": [
+                "Teach prompts for mock interviews",
+                "Teach prompts for persona-specific questions",
+                "Teach prompts for JD-based practice",
+                "Teach prompts for follow-up questions",
+                "Candidate creates and tests interview practice prompts"
+              ],
+              "candidate_focus": "Create and test interview practice prompts.",
+              "planned_start": "1:30",
+              "planned_end": "1:50",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Homework Briefing",
+              "detail": "Trainer briefs the single Day 4 deliverable and its quality expectations. The deliverable is the second Resume-Based PUD - 15 Questions (a second set of 15 selected resume/PUD questions), prepared from the trainer-provided 60-question document, the resume, and the PUD. State the rules: single continuous recording when submitted as video, no notes/prompts during recording, no retakes unless a technical issue, and submission before Day 5.",
+              "key_points": [
+                "Brief the single Day 4 deliverable",
+                "Second Resume-Based PUD - 15 Questions",
+                "Source material: 60-question document, resume, and PUD",
+                "Single continuous recording if video; no notes/prompts",
+                "No retakes unless technical issue; submit before Day 5",
+                "Confirm scope and deadline"
+              ],
+              "candidate_focus": "Confirm scope and deadline.",
+              "planned_start": "1:50",
+              "planned_end": "2:00",
+              "expected_minutes": 10
+            }
+          ],
+          "homework": [
+            {"task": "Resume-Based 60-Question Practice", "time_required": "1.5-2 hours", "expected_output": "Practice selected questions from the trainer-provided document."},
+            {"task": "PUD Practice", "time_required": "45-60 minutes", "expected_output": "Connect project details to resume answers."},
+            {"task": "Persona Practice", "time_required": "45-60 minutes", "expected_output": "Practice answering the same project for recruiter, manager, and architect personas."},
+            {"task": "JD Mapping Practice", "time_required": "45-60 minutes", "expected_output": "Map resume/project points to one or more job descriptions."},
+            {"task": "Prompt Practice", "time_required": "30-45 minutes", "expected_output": "Create prompts for mock interviews and follow-up questions."}
+          ],
+          "deliverables": [
+            {"name": "Resume-Based PUD - 15 Questions", "owner": "Candidate", "format": "Video / Document, based on trainer preference", "scope": "Second set of 15 selected resume/PUD questions."}
+          ],
+          "recording_submission_rules": [
+            {"rule": "Recording Type", "requirement": "Single continuous recording when submitted as video."},
+            {"rule": "Source Material", "requirement": "Trainer-provided 60-question document, resume, and PUD."},
+            {"rule": "Notes / Prompts", "requirement": "Not allowed during recording."},
+            {"rule": "Retakes", "requirement": "Not allowed unless trainer requests due to technical issue."},
+            {"rule": "Submission Deadline", "requirement": "Before Day 5."}
+          ],
+          "evaluation_focus": [
+            {"area": "Resume Ownership", "requirement": "Candidate clearly owns resume points without exaggeration."},
+            {"area": "PUD Understanding", "requirement": "Candidate connects project details to resume answers."},
+            {"area": "Persona Awareness", "requirement": "Candidate understands how answer depth changes by persona."},
+            {"area": "JD Alignment", "requirement": "Candidate aligns real experience honestly with JD expectations."},
+            {"area": "Prompt Understanding", "requirement": "Candidate understands how to use prompts for interview preparation."}
+          ],
+          "exit_gate": {
+            "pass": "Resume-Based PUD 15-question deliverable submitted and quality bar met.",
+            "partial": "Deliverable submitted but answer depth, ownership, or structure needs correction.",
+            "hold": "Missing deliverable, reading from notes, fabricated answers, or weak project ownership."
+          }
+        },
+        "5": {
+          "title": "System Design Execution and Final Architecture Deliverable",
+          "total_minutes": 120,
+          "deliverable_count": 2,
+          "day_objective": "Prepare the candidate to explain a system design problem clearly using structured thinking, architecture flow, trade-offs, scalability, and diagram support.",
+          "focus_areas": [
+            {"area": "System Design Structure", "objective": "Teach a step-by-step system design interview flow."},
+            {"area": "Requirement Clarity", "objective": "Train candidate to ask clarifying questions before designing."},
+            {"area": "Architecture Explanation", "objective": "Candidate should explain components, data flow, APIs, storage, and services."},
+            {"area": "Trade-Offs and Scalability", "objective": "Candidate should justify choices and identify bottlenecks."},
+            {"area": "Diagram Usage", "objective": "Candidate should use an image/diagram to support the explanation."}
+          ],
+          "system_design_framework": [
+            {"step": 1, "requirement": "Clarify the problem statement."},
+            {"step": 2, "requirement": "Identify functional requirements."},
+            {"step": 3, "requirement": "Identify non-functional requirements: scale, latency, reliability, security."},
+            {"step": 4, "requirement": "Define core entities and data models."},
+            {"step": 5, "requirement": "Outline APIs and contracts."},
+            {"step": 6, "requirement": "Draw high-level architecture."},
+            {"step": 7, "requirement": "Explain end-to-end request flow."},
+            {"step": 8, "requirement": "Deep dive into one component."},
+            {"step": 9, "requirement": "Explain trade-offs."},
+            {"step": 10, "requirement": "Address scalability, bottlenecks, monitoring, and failure handling."}
+          ],
+          "sections": [
+            {
+              "name": "Day 4 Review",
+              "detail": "Trainer reviews the Day 4 Resume-Based PUD 15-question deliverable and identifies the final gaps before moving into system design. Confirm resume ownership, PUD connection, persona-appropriate depth, and honest JD alignment, and give the last corrections the candidate should carry into their final deliverables.",
+              "key_points": [
+                "Review the Day 4 resume-based PUD deliverable",
+                "Confirm resume ownership and PUD connection",
+                "Confirm persona-appropriate depth and honest JD alignment",
+                "Identify final gaps and corrections before system design"
+              ],
+              "candidate_focus": "Understand corrections before system design.",
+              "planned_start": "0:00",
+              "planned_end": "0:15",
+              "expected_minutes": 15
+            },
+            {
+              "name": "System Design Framework",
+              "detail": "Trainer teaches the step-by-step system design interview flow the candidate must follow. Walk the full ten-step framework: (1) clarify the problem statement; (2) identify functional requirements; (3) identify non-functional requirements such as scale, latency, reliability, and security; (4) define core entities and data models; (5) outline APIs and contracts; (6) draw the high-level architecture; (7) explain the end-to-end request flow; (8) deep-dive into one component; (9) explain trade-offs; and (10) address scalability, bottlenecks, monitoring, and failure handling. Stress asking clarifying questions before designing and structuring the answer before jumping to a solution.",
+              "key_points": [
+                "Teach the full step-by-step system design flow",
+                "Step 1: clarify the problem statement",
+                "Step 2: identify functional requirements",
+                "Step 3: identify non-functional requirements (scale, latency, reliability, security)",
+                "Step 4: define core entities and data models",
+                "Step 5: outline APIs and contracts",
+                "Step 6: draw high-level architecture",
+                "Step 7: explain end-to-end request flow",
+                "Step 8: deep dive into one component",
+                "Step 9: explain trade-offs",
+                "Step 10: scalability, bottlenecks, monitoring, failure handling",
+                "Ask clarifying questions before designing"
+              ],
+              "candidate_focus": "Understand the structure before attempting design.",
+              "planned_start": "0:15",
+              "planned_end": "0:35",
+              "expected_minutes": 20
+            },
+            {
+              "name": "System Design Problem Walkthrough",
+              "detail": "Trainer works through one concrete system design problem end to end, applying the ten-step framework live so the candidate sees the structure in action - clarifying the problem, listing functional and non-functional requirements, defining entities and APIs, drawing architecture, explaining the request flow, deep-diving a component, and discussing trade-offs and scale. Candidate follows the structure and practices asking clarifying questions before solving.",
+              "key_points": [
+                "Walk one system design problem step-by-step using the framework",
+                "Clarify problem -> requirements -> entities -> APIs -> architecture -> flow -> deep dive -> trade-offs -> scale",
+                "Model asking clarifying questions before solving",
+                "Candidate follows the structure and asks clarifying questions"
+              ],
+              "candidate_focus": "Follow the structure and ask clarifying questions.",
+              "planned_start": "0:35",
+              "planned_end": "1:05",
+              "expected_minutes": 30
+            },
+            {
+              "name": "Architecture Diagram Explanation",
+              "detail": "Trainer shows how to create a clean architecture diagram/image that supports the spoken explanation, with clear components and the flow between them, without over-designing. Cover what to include and what to leave out so the diagram aids understanding rather than cluttering it, and how the diagram should stay aligned with the walkthrough. This supports the System Design Image/Diagram deliverable, which must be clear, readable, and aligned with the walkthrough.",
+              "key_points": [
+                "Show how to build a clean design diagram/image",
+                "Include clear components and the flow between them",
+                "Avoid over-designing / clutter",
+                "Keep the diagram aligned with the spoken walkthrough",
+                "Support the System Design Image/Diagram deliverable (clear, readable, aligned)"
+              ],
+              "candidate_focus": "Understand how to use diagrams without over-designing.",
+              "planned_start": "1:05",
+              "planned_end": "1:30",
+              "expected_minutes": 25
+            },
+            {
+              "name": "Trade-Offs, Bottlenecks and Defense",
+              "detail": "Trainer teaches how to reason about and defend design decisions. Cover scalability, reliability, caching, queues, databases, monitoring, and the failure points of a design, and how to justify why one option was chosen over the alternatives. Candidate practices defending a single design decision, identifying bottlenecks, and explaining scale considerations.",
+              "key_points": [
+                "Explain scalability and reliability",
+                "Explain caching, queues, and databases",
+                "Explain monitoring and failure points",
+                "Justify design choices vs alternatives",
+                "Identify bottlenecks and scale considerations",
+                "Candidate practices defending one design decision"
+              ],
+              "candidate_focus": "Practice defending one design decision.",
+              "planned_start": "1:30",
+              "planned_end": "1:50",
+              "expected_minutes": 20
+            },
+            {
+              "name": "Final Deliverable Briefing",
+              "detail": "Trainer briefs the two final Day 5 deliverables and their quality bar. The deliverables are the System Design Problem Walkthrough (video, recommended 10-15 minutes) and the System Design Image/Diagram (a clear architecture diagram aligned with the walkthrough). State the rules: single continuous recording, no notes/prompts, no retakes unless a technical issue, the diagram/image must be clear, readable, and aligned with the explanation, and final submission after the Day 5 session.",
+              "key_points": [
+                "Brief the two final Day 5 deliverables",
+                "System Design Problem Walkthrough video (10-15 min)",
+                "System Design Image/Diagram (clear, readable, aligned with walkthrough)",
+                "Single continuous recording; no notes/prompts; no retakes unless technical issue",
+                "Diagram must be clear, readable, and aligned with the explanation",
+                "Final submission after the Day 5 session"
+              ],
+              "candidate_focus": "Confirm final Day 5 submissions.",
+              "planned_start": "1:50",
+              "planned_end": "2:00",
+              "expected_minutes": 10
+            }
+          ],
+          "homework": [
+            {"task": "System Design Practice", "time_required": "1-1.5 hours", "expected_output": "Practice one full design problem using the framework."},
+            {"task": "Diagram Creation", "time_required": "45-60 minutes", "expected_output": "Create a clean architecture image/diagram."},
+            {"task": "Verbal Walkthrough Practice", "time_required": "45-60 minutes", "expected_output": "Practice design flow, trade-offs, and scalability aloud."},
+            {"task": "Final Review", "time_required": "30 minutes", "expected_output": "Review recording rules and ensure diagram clarity."}
+          ],
+          "deliverables": [
+            {"name": "System Design Problem Walkthrough", "owner": "Candidate", "format": "Video", "scope": "Recommended 10-15 minutes."},
+            {"name": "System Design Image / Diagram", "owner": "Candidate", "format": "Image / Diagram", "scope": "Clear architecture diagram aligned with walkthrough."}
+          ],
+          "recording_submission_rules": [
+            {"rule": "Recording Type", "requirement": "Single continuous recording."},
+            {"rule": "Notes / Prompts", "requirement": "Not allowed."},
+            {"rule": "Retakes", "requirement": "Not allowed unless trainer requests due to technical issue."},
+            {"rule": "Diagram Requirement", "requirement": "Diagram/image must be clear, readable, and aligned with the explanation."},
+            {"rule": "Submission Deadline", "requirement": "Final submission after Day 5 session."}
+          ],
+          "evaluation_focus": [
+            {"area": "Problem Understanding", "requirement": "Candidate clarifies and structures the problem before solving."},
+            {"area": "Architecture Flow", "requirement": "Candidate explains components and request flow clearly."},
+            {"area": "Diagram Usage", "requirement": "Diagram supports the answer and is not overly complex."},
+            {"area": "Trade-Off Reasoning", "requirement": "Candidate justifies design decisions."},
+            {"area": "Scalability Awareness", "requirement": "Candidate identifies bottlenecks and scale considerations."}
+          ],
+          "exit_gate": {
+            "pass": "System design walkthrough and diagram submitted with quality bar met.",
+            "partial": "Deliverables submitted but diagram, flow, or trade-off explanation needs correction.",
+            "hold": "Missing deliverable, unclear diagram, no trade-offs, or unstructured explanation."
+          }
+        }
       }
-    ]
-  },
-  "2": {
-    "title": "Primary Weakness Repair and Guided Practice",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Review HR and niche responses. Reinforce clear structure, calm delivery, and stopping discipline.",
-        "planned_start": "0:00",
-        "planned_end": "0:15",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Project Interview Foundations",
-        "detail": "Explain how interviewers judge project answers: ownership clarity, metrics, STAR depth, logical flow, and failure awareness.",
-        "planned_start": "0:15",
-        "planned_end": "0:30",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Mandatory Project Scenario Coaching",
-        "detail": "Teach the 5 Mandatory Project Scenario Types: 1. Failure & Learning Story 2. Design Trade-off Decision 3. System Failure & Recovery 4. End-to-End Request Flow 5. Security & Compliance Scope. Ensure candidates use real experiences only.",
-        "planned_start": "0:30",
-        "planned_end": "1:15",
-        "expected_minutes": 45
-      },
-      {
-        "name": "Failure & Trade-off Explanation",
-        "detail": "Teach how to explain technical decisions, constraints, trade-offs, and mistakes. Failure explanation flow: What went wrong -> Why it happened -> How it was detected -> How it was fixed -> What was learned.",
-        "planned_start": "1:15",
-        "planned_end": "1:40",
-        "expected_minutes": 25
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Reinforce STAR storytelling and structured project explanation practice.",
-        "planned_start": "1:40",
-        "planned_end": "2:00",
-        "expected_minutes": 20
-      }
-    ]
-  },
-  "3": {
-    "title": "Introduction, Team Structure and Resume Defense",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Evaluate project explanations for STAR structure, metrics, ownership clarity, and logical explanation flow.",
-        "planned_start": "0:00",
-        "planned_end": "0:20",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Introduction Script",
-        "detail": "Teach structured introduction: background -> role -> skills -> projects -> strengths -> reason for change -> close.",
-        "planned_start": "0:20",
-        "planned_end": "0:35",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Team Structure & System Overview",
-        "detail": "Explain real-world team structure: Frontend, Backend, Data, AI/ML, DevOps, Security and how responsibilities are divided.",
-        "planned_start": "0:35",
-        "planned_end": "0:55",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Tools & System Thinking",
-        "detail": "Teach how to connect tools into one end-to-end system architecture: Frontend -> API Layer -> Queue/Messaging -> Processing Layer -> Database/Cache -> Monitoring/Logging. Explain inputs, outputs, ownership, monitoring, and failure handling at each step.",
-        "planned_start": "0:55",
-        "planned_end": "1:30",
-        "expected_minutes": 35
-      },
-      {
-        "name": "Resume Defense",
-        "detail": "Ask probing resume questions and correct over-claiming ownership. Teach candidates to clearly state what they implemented vs what other teams owned.",
-        "planned_start": "1:30",
-        "planned_end": "1:55",
-        "expected_minutes": 25
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign system explanation and resume-defense practice.",
-        "planned_start": "1:55",
-        "planned_end": "2:00",
-        "expected_minutes": 5
-      }
-    ]
-  },
-  "4": {
-    "title": "Prompt Engineering and Persona-Based Interviews",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Identify clarity gaps in system explanations and project ownership.",
-        "planned_start": "0:00",
-        "planned_end": "0:10",
-        "expected_minutes": 10
-      },
-      {
-        "name": "Prompt Engineering",
-        "detail": "Teach structured prompt design: role context, constraints, assumptions, and conversation flow control.",
-        "planned_start": "0:10",
-        "planned_end": "0:40",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Persona-Based Interview Simulation",
-        "detail": "Teach Persona-Based Explanation Depth: Recruiter -> What the system does. Hiring Manager -> How it works. Architect -> Why design decisions were made.",
-        "planned_start": "0:40",
-        "planned_end": "1:30",
-        "expected_minutes": 50
-      },
-      {
-        "name": "Resume Defense",
-        "detail": "Conduct deep probing and enforce calm, structured responses.",
-        "planned_start": "1:30",
-        "planned_end": "1:50",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Explain persona-based practice tasks.",
-        "planned_start": "1:50",
-        "planned_end": "2:00",
-        "expected_minutes": 10
-      }
-    ]
-  },
-  "5": {
-    "title": "Small Talk, JD Mapping and Tools",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Review persona explanations and communication clarity.",
-        "planned_start": "0:00",
-        "planned_end": "0:10",
-        "expected_minutes": 10
-      },
-      {
-        "name": "Small Talk Mastery",
-        "detail": "Train interview conversation skills: greetings, tone, posture, pacing, and smooth transition into technical discussion.",
-        "planned_start": "0:10",
-        "planned_end": "0:40",
-        "expected_minutes": 30
-      },
-      {
-        "name": "JD Understanding",
-        "detail": "Teach how interviewers read job descriptions. Train candidates to align their project experience to multiple job roles.",
-        "planned_start": "0:40",
-        "planned_end": "1:10",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Tools & Technology Demo",
-        "detail": "Ask tool-related questions and ensure candidates explain them using the Tool Explanation Method.",
-        "planned_start": "1:10",
-        "planned_end": "1:30",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Resume Defense",
-        "detail": "Test composure and ownership clarity through interruptions and probing questions.",
-        "planned_start": "1:30",
-        "planned_end": "1:50",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign JD mapping and explanation practice.",
-        "planned_start": "1:50",
-        "planned_end": "2:00",
-        "expected_minutes": 10
-      }
-    ]
-  },
-  "6": {
-    "title": "System Design",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Identify gaps in structured thinking affecting system design interviews.",
-        "planned_start": "0:00",
-        "planned_end": "0:30",
-        "expected_minutes": 30
-      },
-      {
-        "name": "System Design Prompting",
-        "detail": "Teach how to structure prompts for design interviews and requirement discovery.",
-        "planned_start": "0:30",
-        "planned_end": "0:50",
-        "expected_minutes": 20
-      },
-      {
-        "name": "System Design Framework",
-        "detail": "Teach system design sequence: Clarify problem -> Functional requirements -> Non-functional requirements -> Entities -> APIs -> Architecture -> Request flow -> Component deep dive -> Trade-offs -> Scalability.",
-        "planned_start": "0:50",
-        "planned_end": "1:25",
-        "expected_minutes": 35
-      },
-      {
-        "name": "Trade-offs & Scalability",
-        "detail": "Train candidates to identify bottlenecks, scaling strategies, and design compromises.",
-        "planned_start": "1:25",
-        "planned_end": "1:45",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Diagram Usage",
-        "detail": "Teach when to draw architecture diagrams vs explain verbally.",
-        "planned_start": "1:45",
-        "planned_end": "1:55",
-        "expected_minutes": 10
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign system design practice tasks.",
-        "planned_start": "1:55",
-        "planned_end": "2:00",
-        "expected_minutes": 5
-      }
-    ]
-  },
-  "7": {
-    "title": "Environment, Integrity and GitHub Walkthrough",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Check",
-        "detail": "Confirm preparation progress and reinforce interview readiness expectations.",
-        "planned_start": "0:00",
-        "planned_end": "0:20",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Interview Environment Setup",
-        "detail": "Train candidates on professional setup: camera at eye level, neutral background, clear audio, steady camera, upright posture.",
-        "planned_start": "0:20",
-        "planned_end": "0:35",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Integrity & Verbal Control",
-        "detail": "Teach concise answers, honesty in uncertainty, and controlled speaking pace.",
-        "planned_start": "0:35",
-        "planned_end": "0:55",
-        "expected_minutes": 20
-      },
-      {
-        "name": "GitHub Project Walkthrough",
-        "detail": "Review candidate project repository and challenge decisions with repeated 'why' questions to validate ownership and reasoning.",
-        "planned_start": "0:55",
-        "planned_end": "1:40",
-        "expected_minutes": 45
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign concise explanation and listening practice.",
-        "planned_start": "1:40",
-        "planned_end": "2:00",
-        "expected_minutes": 20
-      }
-    ]
-  },
-  "8": {
-    "title": "Active Listening and Adaptive Discussion",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Evaluate listening and reasoning clarity.",
-        "planned_start": "0:00",
-        "planned_end": "0:20",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Active Listening",
-        "detail": "Train candidates to ask clarifying questions and restate the problem before answering.",
-        "planned_start": "0:20",
-        "planned_end": "0:40",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Document Reading",
-        "detail": "Teach extracting constraints and requirements from job descriptions or project documents.",
-        "planned_start": "0:40",
-        "planned_end": "1:00",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Adaptive Discussion",
-        "detail": "Introduce requirement changes during discussion to test adaptability.",
-        "planned_start": "1:00",
-        "planned_end": "1:45",
-        "expected_minutes": 45
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign logical breakdown and first-principles explanation practice.",
-        "planned_start": "1:45",
-        "planned_end": "2:00",
-        "expected_minutes": 15
-      }
-    ]
-  },
-  "9": {
-    "title": "Technical Rounds and First-Principles Reasoning",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Homework Review",
-        "detail": "Review reasoning clarity and explanation flow.",
-        "planned_start": "0:00",
-        "planned_end": "0:20",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Technical Round Awareness",
-        "detail": "Explain interview round types: coding, discussion, system design, and managerial rounds.",
-        "planned_start": "0:20",
-        "planned_end": "0:40",
-        "expected_minutes": 20
-      },
-      {
-        "name": "First-Principles Reasoning",
-        "detail": "Teach explaining decisions using inputs, outputs, constraints, and trade-offs.",
-        "planned_start": "0:40",
-        "planned_end": "1:00",
-        "expected_minutes": 20
-      },
-      {
-        "name": "GitHub Why Ladder",
-        "detail": "Repeatedly challenge technical decisions to test logical consistency.",
-        "planned_start": "1:00",
-        "planned_end": "1:45",
-        "expected_minutes": 45
-      },
-      {
-        "name": "Homework Briefing",
-        "detail": "Assign resume explanation practice.",
-        "planned_start": "1:45",
-        "planned_end": "2:00",
-        "expected_minutes": 15
-      }
-    ]
-  },
-  "10": {
-    "title": "Full Mock Interview",
-    "total_minutes": 120,
-    "sections": [
-      {
-        "name": "Interview Warm-up",
-        "detail": "Conduct small talk and rapport-building simulation.",
-        "planned_start": "0:00",
-        "planned_end": "0:10",
-        "expected_minutes": 10
-      },
-      {
-        "name": "JD & Resume Discussion",
-        "detail": "Ask detailed resume and job-mapping questions.",
-        "planned_start": "0:10",
-        "planned_end": "0:30",
-        "expected_minutes": 20
-      },
-      {
-        "name": "Project Defense",
-        "detail": "Deep-dive into project architecture, decisions, metrics, and ownership.",
-        "planned_start": "0:30",
-        "planned_end": "1:00",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Technical/System Question",
-        "detail": "Present system design or coding problem and evaluate structured problem solving.",
-        "planned_start": "1:00",
-        "planned_end": "1:30",
-        "expected_minutes": 30
-      },
-      {
-        "name": "Behavioral Questions",
-        "detail": "Assess integrity, stress handling, and coachability.",
-        "planned_start": "1:30",
-        "planned_end": "1:45",
-        "expected_minutes": 15
-      },
-      {
-        "name": "Feedback",
-        "detail": "Provide structured feedback on communication, reasoning, and clarity.",
-        "planned_start": "1:45",
-        "planned_end": "1:55",
-        "expected_minutes": 10
-      },
-      {
-        "name": "Wrap-Up",
-        "detail": "Summarize strengths, improvement areas, and next preparation steps.",
-        "planned_start": "1:55",
-        "planned_end": "2:00",
-        "expected_minutes": 5
-      }
-    ]
-  }
-}

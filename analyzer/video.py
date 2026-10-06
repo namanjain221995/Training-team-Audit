@@ -29,14 +29,61 @@ def extract_frames(video_path: str, fps: float, out_dir: str) -> list[dict]:
 
 
 # ── 2. Presence (MediaPipe Face Detection, dense) ───────────────────────────
+# Zoom records the ACTIVE-SPEAKER view. During screen-share the speaker's camera
+# shrinks to a thumbnail tile in the top-right corner (confirmed on real frames:
+# ~48% of "no full-frame face" frames actually have a detectable face in that
+# corner). So when the full frame has no face we (a) retry inside the corner tile
+# to recover the speaker's face, then (b) if still none, decide whether the frame
+# is a BLANK/dark "camera off" tile (camera_state="camera_off") or live screen
+# content with no visible camera (camera_state="screen_only" — NOT assessable, so
+# it must never be scored as camera-off). A frame with a face is "on".
+_CORNER = (0.66, 0.0, 1.0, 0.36)   # (x0,y0,x1,y1) as fractions: top-right tile region
+_CORNER_UPSCALE = 3                 # the tile is small; upscale before re-detecting
+
+
+def _crop_fractions(img, box):
+    h, w = img.shape[:2]
+    x0, y0 = max(0, int(box[0] * w)), max(0, int(box[1] * h))
+    x1, y1 = min(w, int(box[2] * w)), min(h, int(box[3] * h))
+    return img[y0:y1, x0:x1] if (x1 > x0 and y1 > y0) else None
+
+
+def _region_features(region) -> dict:
+    """Local appearance features used to tell a blank/dark 'camera off' tile from
+    live screen-share content. Thresholds calibrated on real session frames:
+    a camera-off tile has almost no edges, one colour dominates, little white, and
+    low pixel variance; screen-share content fails all of these."""
+    import cv2
+    if region is None or region.size == 0:
+        return {"edge": 0.0, "dom_color": 1.0, "near_white": 0.0, "gray_std": 0.0}
+    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+    edge = float(np.count_nonzero(edges)) / edges.size
+    hist = cv2.calcHist([gray], [0], None, [16], [0, 256]).flatten()
+    dom = float(hist.max()) / float(hist.sum() or 1)
+    near_white = float(np.count_nonzero(gray >= 235)) / gray.size
+    return {"edge": edge, "dom_color": dom, "near_white": near_white,
+            "gray_std": float(np.std(gray))}
+
+
+def _looks_blank_tile(f: dict) -> bool:
+    return (f["edge"] < 0.02 and f["dom_color"] > 0.75
+            and f["near_white"] < 0.20 and f["gray_std"] < 25)
+
+
 def detect_presence(frames: list[dict]) -> list[dict]:
     import cv2
     import mediapipe as mp
     fd = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+    # second, more sensitive detector just for the small upscaled corner tile
+    fd_corner = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.3)
     out = []
+    recovered = cam_off = screen_only = 0
+    cx0, cy0, cx1, cy1 = _CORNER
     for fr in frames:
         img = cv2.imread(fr["path"])
         n, boxes, points = 0, [], []
+        face_source, camera_state = None, "screen_only"
         if img is not None:
             res = fd.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
             if res.detections:
@@ -48,22 +95,63 @@ def detect_presence(frames: list[dict]) -> list[dict]:
                     # 6 facial keypoints (eyes, nose, mouth, ears) — free from the detector
                     points.append([[round(k.x, 4), round(k.y, 4)]
                                    for k in det.location_data.relative_keypoints])
+                face_source, camera_state = "full", "on"
+            else:
+                # no full-frame face: try to recover the active-speaker corner tile
+                crop = _crop_fractions(img, _CORNER)
+                best = None
+                if crop is not None:
+                    up = cv2.resize(crop, None, fx=_CORNER_UPSCALE, fy=_CORNER_UPSCALE,
+                                    interpolation=cv2.INTER_CUBIC)
+                    cres = fd_corner.process(cv2.cvtColor(up, cv2.COLOR_BGR2RGB))
+                    if cres.detections:
+                        best = max(cres.detections, key=lambda d: (d.location_data.relative_bounding_box.width
+                                                                   * d.location_data.relative_bounding_box.height))
+                if best is not None:
+                    rb = best.location_data.relative_bounding_box
+                    # map the corner-relative box back to full-frame relative coords
+                    boxes.append([round(cx0 + rb.xmin * (cx1 - cx0), 4),
+                                  round(cy0 + rb.ymin * (cy1 - cy0), 4),
+                                  round(rb.width * (cx1 - cx0), 4),
+                                  round(rb.height * (cy1 - cy0), 4)])
+                    points.append([[round(cx0 + k.x * (cx1 - cx0), 4),
+                                    round(cy0 + k.y * (cy1 - cy0), 4)]
+                                   for k in best.location_data.relative_keypoints])
+                    n, face_source, camera_state = 1, "corner", "on"
+                    recovered += 1
+                else:
+                    # no face anywhere: blank camera tile (camera off) vs live screen?
+                    blank_whole = _looks_blank_tile(_region_features(img))
+                    blank_corner = crop is not None and _looks_blank_tile(_region_features(crop))
+                    if blank_whole or blank_corner:
+                        camera_state = "camera_off"
+                        cam_off += 1
+                    else:
+                        camera_state = "screen_only"   # unassessable — never scored as off
+                        screen_only += 1
         out.append({**fr, "faces": int(n), "face_present": n > 0,
-                    "face_boxes": boxes, "face_points": points})
+                    "face_boxes": boxes, "face_points": points,
+                    "face_source": face_source, "camera_state": camera_state})
     fd.close()
+    fd_corner.close()
     present = sum(1 for f in out if f["face_present"])
-    print(f"Face present in {present}/{len(out)} frames (rest = screen-share / no face)")
+    print(f"Face present in {present}/{len(out)} frames "
+          f"(corner-recovered {recovered}; camera-off {cam_off}; screen-only {screen_only})")
     return out
 
 
 def presence_summary(presence: list[dict], fps: float) -> dict:
     face = sum(1 for p in presence if p["face_present"])
+    cam_off = sum(1 for p in presence if p.get("camera_state") == "camera_off")
+    screen_only = sum(1 for p in presence if p.get("camera_state") == "screen_only")
     per = 1.0 / fps
     return {
         "frames_sampled": len(presence),
         "fps": fps,
         "face_visible_sec": round(face * per, 1),
         "screen_share_or_noface_sec": round((len(presence) - face) * per, 1),
+        "camera_off_sec": round(cam_off * per, 1),
+        "screen_only_sec": round(screen_only * per, 1),
     }
 
 
@@ -137,6 +225,72 @@ def camera_analysis(presence: list[dict], segments: list[dict], roles: dict, fps
     return out
 
 
+# ── 3b. Camera state aligned to speaking turns (trainer camera-off, local) ──
+def _speaker_windows(segments: list[dict], roles: dict, role: str, gap: float = 8.0) -> list[dict]:
+    """Merge a role's speaking segments into windows (gaps < `gap` joined),
+    longest first. Used for the trainer camera-off and trainer-reading checks."""
+    wins, cur = [], None
+    for s in segments:
+        if roles.get(s["speaker"]) == role:
+            if cur and s["start"] - cur["end"] < gap:
+                cur["end"] = s["end"]
+            else:
+                if cur:
+                    wins.append(cur)
+                cur = {"start": s["start"], "end": s["end"]}
+    if cur:
+        wins.append(cur)
+    wins.sort(key=lambda a: a["end"] - a["start"], reverse=True)
+    return wins
+
+
+def camera_state_analysis(presence: list[dict], segments: list[dict], roles: dict, fps: float) -> dict:
+    """Per role, measure camera state WHILE THAT ROLE IS THE ACTIVE SPEAKER (the
+    corner tile / full frame shows them). Returns on / camera_off / unassessable
+    seconds and the LONGEST CONTINUOUS camera-off stretch — the number the trainer
+    camera-off rule scores. Screen-only (unassessable) frames break an off-stretch
+    and are counted separately, so a pure screen-share moment is never a deduction.
+    The stretch counter resets between speaking windows (the tile switches away)."""
+    def state_at(t: float):
+        idx = int(round(t * fps))
+        return presence[idx].get("camera_state") if 0 <= idx < len(presence) else None
+
+    per = 1.0 / fps
+    out = {}
+    for role in ("trainer", "candidate"):
+        on = off = unassess = 0.0
+        longest = 0.0
+        longest_start = None
+        for w in _speaker_windows(segments, roles, role):
+            cur, cur_start = 0.0, None
+            t = w["start"]
+            while t < w["end"]:
+                st = state_at(t)
+                if st == "camera_off":
+                    off += per
+                    if cur == 0.0:
+                        cur_start = t
+                    cur += per
+                    if cur > longest:
+                        longest, longest_start = cur, cur_start
+                else:
+                    if st == "on":
+                        on += per
+                    elif st == "screen_only":
+                        unassess += per
+                    cur, cur_start = 0.0, None
+                t += per
+        out[role] = {
+            "on_sec": round(on, 1),
+            "camera_off_sec": round(off, 1),
+            "unassessable_sec": round(unassess, 1),
+            "assessable_sec": round(on + off, 1),
+            "longest_camera_off_sec": round(longest, 1),
+            "longest_camera_off_start": _sec_to_ts(longest_start) if longest_start is not None else None,
+        }
+    return out
+
+
 # ── 4a. Gaze / reading tell (MediaPipe Face Mesh, curated answer frames) ────
 # Landmark indices for the 478-point refined mesh
 _L_EYE = (33, 133)      # left eye outer, inner corners
@@ -183,6 +337,58 @@ def analyze_gaze(presence: list[dict], segments: list[dict], roles: dict, fps: f
         if not used:
             continue
         results.append(_score_reading(yaws, pitches, hgrs, vgrs, ans, used))
+    fm.close()
+    return results
+
+
+def analyze_trainer_reading(presence: list[dict], segments: list[dict], roles: dict, fps: float) -> list[dict]:
+    """Reading-from-screen tell for the TRAINER while explaining.
+
+    Only full-frame camera-on frames are used (face_source == 'full'): when a
+    document is being shared the trainer's face is a tiny corner tile or absent,
+    so such windows have too few full frames and are SKIPPED — reading a shared
+    document is legitimate and must not be penalised. A window assessed here is
+    therefore one where the trainer is on camera explaining, not screen-sharing."""
+    import cv2
+    import mediapipe as mp
+
+    wins = _speaker_windows(segments, roles, "trainer")
+    if not wins:
+        return []
+    full_frames = [p for p in presence if p.get("face_present") and p.get("face_source") == "full"]
+    if not full_frames:
+        return []
+
+    MIN_FULL = 3   # fewer full-frame faces than this -> document likely shared; skip
+    fm = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, refine_landmarks=True,
+                                         max_num_faces=1, min_detection_confidence=0.5)
+    results = []
+    for w in wins[:3]:   # cap: 3 longest trainer windows
+        inwin = [p for p in full_frames if w["start"] <= p["time_sec"] <= w["end"]]
+        if len(inwin) < MIN_FULL:
+            continue
+        frames = _frames_in_window(inwin, w["start"], w["end"], k=5)
+        yaws, pitches, hgrs, vgrs, used = [], [], [], [], []
+        for f in frames:
+            img = cv2.imread(f["path"])
+            if img is None:
+                continue
+            res = fm.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            if not res.multi_face_landmarks:
+                continue
+            lm = res.multi_face_landmarks[0].landmark
+            h, iw = img.shape[:2]
+            yaw, pitch = _head_pose(lm, iw, h)
+            hgr, vgr = _eye_gaze(lm)
+            if yaw is not None:
+                yaws.append(yaw); pitches.append(pitch)
+            hgrs.append(hgr); vgrs.append(vgr); used.append(f)
+        if not used:
+            continue
+        rec = _score_reading(yaws, pitches, hgrs, vgrs, w, used)
+        rec["role"] = "trainer"
+        rec["document_shared"] = False   # only non-screen-share full-frame frames used
+        results.append(rec)
     fm.close()
     return results
 
@@ -364,7 +570,24 @@ def analyze_identity(presence: list[dict], cfg) -> dict:
         result["trainer_present"] = len(trainer_hits) > 0
         result["candidate_present"] = len(candidate) > 0
         result["candidate_identities"] = len(cand_clusters)
-        result["same_person_throughout"] = len(cand_clusters) <= 1
+        # per-identity on-screen presence -> feeds the duration-gated proxy-swap
+        # policy in scoring (a brief blip must not cost the same as a real 2nd person)
+        ip = []
+        for ci, cluster in enumerate(cand_clusters):
+            ct = sorted(candidate[i][0] for i in cluster)
+            ip.append({"label": f"person-{ci + 1}", "samples": len(cluster),
+                       "presence_sec": round(len(cluster) * cfg.identity_sample_sec, 1),
+                       "first_time_sec": round(ct[0], 1), "last_time_sec": round(ct[-1], 1),
+                       "primary": False})
+        if ip:
+            max(ip, key=lambda d: d["samples"])["primary"] = True
+        result["identity_presence"] = ip
+        # "same person" allows brief blips: only a SUSTAINED second identity (present
+        # longer than the grace window) counts as a real change. Session-type policy
+        # (1:1 vs group, -40 vs -25) is decided later in scoring.
+        grace = getattr(cfg, "person_change_grace_sec", 120) or 120
+        sustained = any((not p["primary"]) and p["presence_sec"] > grace for p in ip)
+        result["same_person_throughout"] = not sustained
         for t, p, _, bb, s in trainer_hits:
             detail.append({"time_sec": t, "frame": os.path.basename(p),
                            "label": "trainer", "bbox": bb, "sim": round(s, 2)})
@@ -452,15 +675,19 @@ def run_video(frames: list[dict], segments: list[dict], roles: dict, cfg) -> tup
     mark_track_breaks(presence)
     summary = presence_summary(presence, cfg.frame_fps)
     camera = camera_analysis(presence, segments, roles, cfg.frame_fps)
+    camera_state = camera_state_analysis(presence, segments, roles, cfg.frame_fps)
     print("Analyzing gaze (MediaPipe Face Mesh)...")
     gaze = analyze_gaze(presence, segments, roles, cfg.frame_fps)
+    print("Analyzing trainer reading-from-screen...")
+    trainer_reading = analyze_trainer_reading(presence, segments, roles, cfg.frame_fps)
     print("Analyzing identity / consistency (InsightFace)...")
     consistency = analyze_identity(presence, cfg)
     result = {
         "enabled": True,
         **summary,
         "camera": camera,
-        "vision": {"gaze": gaze, "consistency": consistency},
+        "camera_state": camera_state,
+        "vision": {"gaze": gaze, "trainer_reading": trainer_reading, "consistency": consistency},
         "evidence_frames_dir": "frames/",
     }
     return result, presence
@@ -478,19 +705,7 @@ def _cos(a, b):
 
 
 def _candidate_answers(segments, roles):
-    answers, cur = [], None
-    for s in segments:
-        if roles.get(s["speaker"]) == "candidate":
-            if cur and s["start"] - cur["end"] < 8:
-                cur["end"] = s["end"]
-            else:
-                if cur:
-                    answers.append(cur)
-                cur = {"start": s["start"], "end": s["end"]}
-    if cur:
-        answers.append(cur)
-    answers.sort(key=lambda a: a["end"] - a["start"], reverse=True)
-    return answers
+    return _speaker_windows(segments, roles, "candidate")
 
 
 def _frames_in_window(face_frames, start, end, k=5):
