@@ -48,7 +48,19 @@ sudo systemctl start training-worker
 `AWS_REGION` · `ANALYSIS_QUEUE_URL` · `IDLE_MINUTES` · `STOP_WHEN_IDLE` ·
 `MERGE_STRATEGY` (`stitch`|`longest`) · `OPENAI_API_KEY` · `OPENAI_MODEL` ·
 `OPENAI_REASONING_EFFORT` · `MODEL_CACHE_DIR` · `ENABLE_VIDEO_ANALYSIS` ·
-`SAVE_ANALYSIS_VIDEO` · `TRAINER_PHOTOS_DIR` (optional override)
+`SAVE_ANALYSIS_VIDEO` · `TRAINER_PHOTOS_DIR` (optional override) ·
+`LLM_PROVIDERS` · `TECHSARA_API_KEY` · `TECHSARA_MODEL` · `TECHSARA_REASONING_EFFORT` ·
+`TECHSARA_WHISPER` · `WHISPER_CHUNK_SEC` · `WHISPER_PARALLEL`
+
+**Which AI model runs** (`LLM_PROVIDERS`, first = primary → `result.json` / Salesforce):
+
+| Phase | Setting | Saved per meeting |
+|---|---|---|
+| Testing now | `LLM_PROVIDERS=techsara,openai` | both: `report.html` (ours) + `report-techsara-35b.html` + `report-gpt-5.5.html` + `model-comparison.json` |
+| Live | `LLM_PROVIDERS=techsara` | ours only: `report.html` / `result.json` |
+
+With `TECHSARA_WHISPER=true` every meeting also gets `transcript-whisper.json` and
+`transcript-combined.vtt` / `.json` (Whisper text + Zoom speaker names).
 
 <details>
 <summary><b>Overwrite the whole file in one paste</b> (alternative to nano)</summary>
@@ -63,6 +75,11 @@ MERGE_STRATEGY=stitch
 OPENAI_API_KEY=sk-PASTE-KEY-HERE
 OPENAI_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT=high
+LLM_PROVIDERS=techsara,openai
+TECHSARA_API_KEY=tsk_live_PASTE-KEY-HERE
+TECHSARA_MODEL=techsara-35b
+TECHSARA_REASONING_EFFORT=high
+TECHSARA_WHISPER=true
 MODEL_CACHE_DIR=/opt/training-audit/.cache
 ENABLE_VIDEO_ANALYSIS=true
 SAVE_ANALYSIS_VIDEO=true

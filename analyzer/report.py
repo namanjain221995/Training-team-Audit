@@ -281,8 +281,10 @@ def _topbar(result):
         ("flags", "Red flags"), ("key-moments", "Key moments"), ("coverage", "Coverage"),
         ("metrics", "Metrics"), ("rhythm", "Rhythm"), ("language", "Language"),
         ("video", "Video"), ("recommendations", "Actions")))
+    model = (meeting.get("llm") or {}).get("model")
     return ("<div class='topbar noprint'>"
-            f"<span class='brand'>📋 Session Review · Day {_e(meeting.get('day'))}</span>"
+            f"<span class='brand'>📋 Session Review · Day {_e(meeting.get('day'))}"
+            f"{' · ' + _e(model) if model else ''}</span>"
             f"<nav>{nav}</nav><span class='spacer'></span></div>")
 
 
@@ -374,8 +376,43 @@ def _howto_note():
             "to save or share this review.</div>")
 
 
+def _llm_line(meeting):
+    llm = meeting.get("llm") or {}
+    if not llm.get("model"):
+        return ""
+    effort = f", thinking: {llm['reasoning_effort']}" if llm.get("reasoning_effort") else ""
+    if "reasoning_effort" in (llm.get("fields_not_supported") or []):
+        effort = ", thinking: not supported by this server yet"
+    return f"{llm['model']} ({llm.get('provider')}{effort})" + (" — primary" if llm.get("primary") else "")
+
+
+def _transcript_line(result):
+    tr = result.get("transcript") or {}
+    src = tr.get("source")
+    if not src:
+        return ""
+    comb = (tr.get("sources") or {}).get("combine") or {}
+    text = {"combined": "Zoom transcript + techsara-whisper, combined (Whisper text, Zoom speaker names)",
+            "vtt": "Zoom transcript",
+            "techsara-whisper": "techsara-whisper (no speaker names)",
+            "whisper": "local Whisper (no speaker names)"}.get(src, src)
+    if comb:
+        text += (f" · {comb.get('labeled_speech_pct')}% of speech has a speaker name · "
+                 f"Zoom vs Whisper text agreement {comb.get('text_agreement_pct')}%")
+    return text
+
+
+def _other_reports(meeting):
+    this = (meeting.get("llm") or {}).get("model")
+    links = [f"<a href='{_e(r.get('report'))}'>{_e(r.get('model'))}</a>"
+             + (" (primary)" if r.get("primary") else "")
+             for r in (meeting.get("reports") or []) if r.get("model") != this]
+    return " · ".join(links)
+
+
 def _session_card(meeting, result):
     src = meeting.get("config_source")
+    other = _other_reports(meeting)
     rows = [
         ("Training day", f"Day {_e(meeting.get('day'))} — {_e(meeting.get('day_title'))}"),
         ("Session label (Salesforce)", _e(meeting.get("day_step_name"))),
@@ -385,6 +422,9 @@ def _session_card(meeting, result):
         ("Meeting ID", _e(meeting.get("meeting_id"))),
         ("Recording length", f"{_e(round((meeting.get('duration_sec') or 0) / 60.0, 1))} minutes"),
         ("Session details from", _e(src)),
+        ("AI model (this report)", _e(_llm_line(meeting))),
+        ("Transcript", _e(_transcript_line(result))),
+        ("Same session, other AI model", other),   # already-escaped links
     ]
     trs = "".join(f"<tr><td>{k}</td><td><b>{v}</b></td></tr>" for k, v in rows if v and v != "None")
     warn = ""

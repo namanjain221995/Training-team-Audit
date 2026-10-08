@@ -9,7 +9,9 @@ transcript webhook lands and training-temp.json is written):
      TRAINER_PHOTOS_DIR).
   2. Run the full analyzer (analyzer.api) in a per-job temp dir.
   3. Upload result.json, report.html, analysis-video.mp4 and the whole proof/
-     folder BACK TO THE SAME MEETING PREFIX. Nothing is kept on the instance —
+     folder BACK TO THE SAME MEETING PREFIX — plus, when enabled, every model's
+     result-<model>.json / report-<model>.html / model-comparison.json and the
+     transcripts (transcript-whisper.json, transcript-combined.vtt/.json). Nothing is kept on the instance —
      the temp dir is deleted after every job (only the model cache persists).
   4. Re-merge the session file: gather every sibling chunk's result.json for
      this meeting_id under the same date and write
@@ -32,6 +34,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 
@@ -53,8 +56,13 @@ TRAINER_PHOTOS_DIR = os.path.abspath(
     os.environ.get("TRAINER_PHOTOS_DIR", "").strip()
     or os.path.join(os.path.dirname(__file__), "..", "trainer"))
 OPENAI_SECRET_NAME = os.environ.get("OPENAI_SECRET_NAME", "training-analysis/openai").strip()
+TECHSARA_SECRET_NAME = os.environ.get("TECHSARA_SECRET_NAME", "training-analysis/techsara").strip()
 WORK_ROOT = os.environ.get("WORK_ROOT", tempfile.gettempdir())
 MAX_RECEIVES = int(os.environ.get("MAX_RECEIVES", "3") or 3)
+# heartbeat: a job (Whisper + several models + video) can outlast the queue's
+# 30-min visibility timeout; keep pushing it out so the job is never re-delivered
+VISIBILITY_EXTEND_EVERY_SEC = 300
+VISIBILITY_EXTEND_TO_SEC = 1800
 
 _shutdown = False
 
@@ -106,6 +114,10 @@ def loop() -> int:
 
         m = msgs[0]
         receives = int((m.get("Attributes") or {}).get("ApproximateReceiveCount", "1"))
+        stop_beat = threading.Event()
+        beat = threading.Thread(target=_keep_invisible, daemon=True,
+                                args=(sqs, m["ReceiptHandle"], stop_beat))
+        beat.start()
         try:
             job = json.loads(m["Body"])
             print(f"\n=== JOB (attempt {receives}): meeting {job.get('meeting_id')} "
@@ -120,10 +132,22 @@ def loop() -> int:
                       f"Reprocess manually with --once when fixed.")
                 sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=m["ReceiptHandle"])
             # else: message reappears after the visibility timeout for a retry
+        finally:
+            stop_beat.set()
         last_active = time.time()
 
     print("Worker exiting (signal).")
     return 0
+
+
+def _keep_invisible(sqs, receipt: str, stop: threading.Event) -> None:
+    """Extend the in-flight message's visibility until the job finishes."""
+    while not stop.wait(VISIBILITY_EXTEND_EVERY_SEC):
+        try:
+            sqs.change_message_visibility(QueueUrl=QUEUE_URL, ReceiptHandle=receipt,
+                                          VisibilityTimeout=VISIBILITY_EXTEND_TO_SEC)
+        except Exception as exc:
+            print(f"(heartbeat) could not extend message visibility: {exc!r}")
 
 
 def _on_term(signum, frame):
@@ -318,27 +342,36 @@ def _job_from_prefix(bucket: str, prefix: str) -> dict:
     }
 
 
-# ── OpenAI key from Secrets Manager (so no key sits in a repo/.env) ──────────
+# ── model API keys from Secrets Manager (so no key has to sit in .env) ───────
 def _resolve_openai_key() -> None:
-    if os.environ.get("OPENAI_API_KEY", "").strip():
-        return
+    """Fill OPENAI_API_KEY / TECHSARA_API_KEY from Secrets Manager when they are
+    needed (per LLM_PROVIDERS / TECHSARA_WHISPER) and not already set in .env."""
     if os.environ.get("MOCK_OPENAI", "").strip().lower() in ("1", "true", "yes", "on"):
         return
-    if not OPENAI_SECRET_NAME:
+    providers = {p.strip().lower() for p in
+                 (os.environ.get("LLM_PROVIDERS", "") or "openai").split(",") if p.strip()}
+    whisper = os.environ.get("TECHSARA_WHISPER", "").strip().lower() in ("1", "true", "yes", "on")
+    if "openai" in providers:
+        _secret_to_env("OPENAI_API_KEY", OPENAI_SECRET_NAME)
+    if "techsara" in providers or whisper:
+        _secret_to_env("TECHSARA_API_KEY", TECHSARA_SECRET_NAME)
+
+
+def _secret_to_env(var: str, secret_name: str) -> None:
+    if os.environ.get(var, "").strip() or not secret_name:
         return
     try:
         sm = boto3.client("secretsmanager", region_name=REGION)
-        val = sm.get_secret_value(SecretId=OPENAI_SECRET_NAME).get("SecretString") or ""
+        val = sm.get_secret_value(SecretId=secret_name).get("SecretString") or ""
         try:
-            val = json.loads(val).get("OPENAI_API_KEY", val)
+            val = json.loads(val).get(var, val)    # plain string or {"VAR": "..."}
         except Exception:
             pass
         if val:
-            os.environ["OPENAI_API_KEY"] = val.strip()
-            print(f"OPENAI_API_KEY loaded from Secrets Manager ({OPENAI_SECRET_NAME})")
+            os.environ[var] = val.strip()
+            print(f"{var} loaded from Secrets Manager ({secret_name})")
     except Exception as exc:
-        print(f"Could not read secret {OPENAI_SECRET_NAME} ({exc}); "
-              f"set OPENAI_API_KEY or MOCK_OPENAI=true")
+        print(f"Could not read secret {secret_name} ({exc}); set {var} in .env or MOCK_OPENAI=true")
 
 
 # ── stop this instance ───────────────────────────────────────────────────────

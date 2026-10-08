@@ -22,10 +22,13 @@
       "Resource": "arn:aws:sqs:us-east-1:985100584614:training-analysis-jobs"
     },
     {
-      "Sid": "ReadOpenAIKey",
+      "Sid": "ReadModelKeys",
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",
-      "Resource": "arn:aws:secretsmanager:us-east-1:985100584614:secret:training-analysis/openai*"
+      "Resource": [
+        "arn:aws:secretsmanager:us-east-1:985100584614:secret:training-analysis/openai*",
+        "arn:aws:secretsmanager:us-east-1:985100584614:secret:training-analysis/techsara*"
+      ]
     },
     {
       "Sid": "StopSelfWhenIdle",
