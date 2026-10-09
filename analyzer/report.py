@@ -471,9 +471,10 @@ def _attendance_card(result):
     parts = [p for p in (m.get("participants") or []) if isinstance(p, dict)]
     has_data = bool(sched or host_join or parts)
     missing_note = ("" if has_data else
-                    "<div class='note'>ℹ️ Scheduled time, join times and the participant list are "
-                    "pulled from Zoom's participant report on live worker runs. They are not available "
-                    "for a locally-tested video, so this section shows placeholders here.</div>")
+                    "<div class='note'>ℹ️ Scheduled time, join times and the participant list come from "
+                    "Zoom (written into training-temp.json by the recording Lambda). They are not available "
+                    "for this report — either it is a locally-tested video, or Zoom returned no "
+                    "participant/scheduled data for this meeting.</div>")
 
     host_email = (m.get("host_email") or "").strip().lower()
     trainer_nm = (m.get("trainer_name") or "").strip().lower()
