@@ -35,7 +35,13 @@ MERGE_STRATEGY=stitch
 # trainer photos ship with the repo (trainer/<Trainer_Name>.png); override only if moved:
 # TRAINER_PHOTOS_DIR=/opt/training-audit/trainer
 OPENAI_SECRET_NAME=training-analysis/openai
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=gpt-5.5
+OPENAI_REASONING_EFFORT=high
+# models: techsara,openai = testing (both saved, ours primary) | techsara = live
+LLM_PROVIDERS=techsara,openai
+TECHSARA_SECRET_NAME=training-analysis/techsara
+TECHSARA_MODEL=techsara-35b
+TECHSARA_WHISPER=true
 MODEL_CACHE_DIR=/opt/training-audit/.cache
 ENABLE_VIDEO_ANALYSIS=true
 SAVE_ANALYSIS_VIDEO=true

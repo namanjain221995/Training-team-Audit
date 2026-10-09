@@ -19,8 +19,10 @@ import os
 import shutil
 
 
-def build(result: dict, cfg, frames: list[dict]) -> None:
-    root = cfg.proof_dir
+def build(result: dict, cfg, frames: list[dict], name: str = "proof") -> None:
+    """name = folder under the output dir: "proof" for the primary result,
+    "proof-<model>" for each additional model's result."""
+    root = os.path.join(os.path.dirname(cfg.proof_dir), name)
     shutil.rmtree(root, ignore_errors=True)   # idempotent re-runs
     os.makedirs(root, exist_ok=True)
     _write(os.path.join(root, "README.txt"), _readme(result))
@@ -31,7 +33,7 @@ def build(result: dict, cfg, frames: list[dict]) -> None:
     frame_paths = {os.path.basename(f["path"]): f["path"]
                    for f in frames if isinstance(f, dict) and f.get("path")}
     for d in result["scoring"]["deductions"]:
-        d["proof"] = _proof_for_deduction(d, meeting, root, frame_paths, frames)
+        d["proof"] = _proof_for_deduction(d, meeting, root, frame_paths, frames, name)
 
     # give flags the same pointers as their matching deduction
     by_reason = {d["reason"]: d.get("proof") for d in result["scoring"]["deductions"]}
@@ -42,18 +44,18 @@ def build(result: dict, cfg, frames: list[dict]) -> None:
 
     cov = result.get("transcript", {}).get("coverage_analysis", {})
     if cov.get("coverage"):
-        path = _coverage_report(cov, meeting, root)
+        path = _coverage_report(cov, meeting, root, name)
         cov["proof"] = path
 
-    result["proof_dir"] = "proof/"
+    result["proof_dir"] = f"{name}/"
 
 
 # ── per-deduction ────────────────────────────────────────────────────────────
 def _proof_for_deduction(d: dict, meeting: dict, root: str,
-                         frame_paths: dict, frames: list[dict]) -> list[str]:
+                         frame_paths: dict, frames: list[dict], folder: str) -> list[str]:
     sub = os.path.join(root, d["reason"])
     os.makedirs(sub, exist_ok=True)
-    rel = lambda name: f"proof/{d['reason']}/{name}"
+    rel = lambda name: f"{folder}/{d['reason']}/{name}"
     paths = []
 
     lines = [
@@ -90,7 +92,7 @@ def _proof_for_deduction(d: dict, meeting: dict, root: str,
 
 
 # ── coverage report ──────────────────────────────────────────────────────────
-def _coverage_report(cov: dict, meeting: dict, root: str) -> str:
+def _coverage_report(cov: dict, meeting: dict, root: str, folder: str) -> str:
     sub = os.path.join(root, "section_coverage")
     os.makedirs(sub, exist_ok=True)
     lines = [
@@ -116,7 +118,7 @@ def _coverage_report(cov: dict, meeting: dict, root: str) -> str:
         lines += ["", "KEY SECTIONS RUSHED/SKIPPED (>=25 planned min): "
                   + ", ".join(cov["under_covered_key_sections"])]
     _write(os.path.join(sub, "coverage_report.txt"), "\n".join(lines) + "\n")
-    return "proof/section_coverage/coverage_report.txt"
+    return f"{folder}/section_coverage/coverage_report.txt"
 
 
 

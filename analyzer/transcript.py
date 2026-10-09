@@ -1,6 +1,7 @@
 """Transcript track.
 
-1. load_transcript  -> speaker-tagged, timestamped segments (from VTT, or Whisper)
+1. load_transcript  -> speaker-tagged, timestamped segments (Zoom VTT, techsara-whisper,
+                       or both combined — see combine.py)
 2. compute_metrics  -> duration, per-role talk-time (seconds), non-English flags  [no AI]
 3. analyze_coverage -> GPT-4o: day-plan coverage + integrity read                 [1 AI call]
 """
@@ -10,12 +11,63 @@ from difflib import SequenceMatcher
 
 
 # ── 1. Load ────────────────────────────────────────────────────────────────
-def load_transcript(cfg) -> tuple[list[dict], str]:
-    """Return (segments, source). segment = {speaker, start, end, text}."""
+def load_transcript(cfg, out_dir: str | None = None,
+                    work_dir: str | None = None) -> tuple[list[dict], str, dict]:
+    """Return (segments, source, info). segment = {speaker, start, end, text}.
+
+    source:
+      combined          Zoom VTT speakers + techsara-whisper text (TECHSARA_WHISPER=true)
+      vtt               Zoom VTT only
+      techsara-whisper  no VTT: techsara-whisper text, no speaker labels
+      whisper           no VTT, no techsara-whisper: local faster-whisper (CPU, slow)
+
+    With out_dir, the transcripts are saved next to result.json (and so uploaded to
+    the meeting's S3 prefix by the worker): transcript-whisper.json, and when both
+    sources exist transcript-combined.vtt + transcript-combined.json.
+    """
+    from . import combine as C
+    info: dict = {}
+    vtt = None
     if cfg.transcript_path and os.path.exists(cfg.transcript_path):
-        return parse_vtt(cfg.transcript_path), "vtt"
+        vtt = parse_vtt(cfg.transcript_path)
+
+    whisper = None
+    if getattr(cfg, "techsara_whisper", False) and not cfg.mock_openai:
+        if not cfg.techsara_api_key:
+            print("TECHSARA_WHISPER=true but TECHSARA_API_KEY is empty; skipping techsara-whisper")
+        else:
+            from . import whisper_api
+            try:
+                whisper = whisper_api.transcribe(
+                    cfg.video_path, cfg, work_dir or os.path.join(cfg.frames_work_dir, "..", "_whisper"))
+            except Exception as exc:   # whisper is an improvement, never a reason to fail
+                print(f"techsara-whisper failed ({exc!r}); using the Zoom transcript only")
+                info["whisper_error"] = repr(exc)
+
+    if whisper and whisper["segments"]:
+        info["whisper"] = {k: v for k, v in whisper.items() if k != "segments"}
+        if out_dir:
+            C.write_json(whisper, os.path.join(out_dir, "transcript-whisper.json"))
+            info["files"] = ["transcript-whisper.json"]
+        if vtt:
+            combined, stats = C.combine(vtt, whisper["segments"])
+            info["combine"] = stats
+            print(f"Combined transcript: {stats['combined_segments']} segments "
+                  f"({stats['from_whisper']} Whisper, {stats['from_zoom_only']} Zoom-only), "
+                  f"{stats['labeled_speech_pct']}% speaker-labeled, Zoom/Whisper text agreement "
+                  f"{stats['text_agreement_pct']}%")
+            if out_dir:
+                C.write_vtt(combined, os.path.join(out_dir, "transcript-combined.vtt"))
+                C.write_json({"stats": stats, "segments": combined},
+                             os.path.join(out_dir, "transcript-combined.json"))
+                info["files"] += ["transcript-combined.vtt", "transcript-combined.json"]
+            return combined, "combined", info
+        return [{"speaker": None, **s} for s in whisper["segments"]], "techsara-whisper", info
+
+    if vtt is not None:
+        return vtt, "vtt", info
     print(f"No transcript file; transcribing video with Whisper ({cfg.whisper_model})...")
-    return transcribe_whisper(cfg.video_path, cfg.whisper_model), "whisper"
+    return transcribe_whisper(cfg.video_path, cfg.whisper_model), "whisper", info
 
 
 def parse_vtt(path: str) -> list[dict]:
@@ -377,7 +429,8 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         + f"TRANSCRIPT:\n{transcript_text}\n\n"
         "Respond with JSON of exactly this shape:\n"
         "{\n"
-        '  "overview": "<3-5 paragraph plain-English narrative of the meeting from start to finish>",\n'
+        '  "overview": "<3-5 paragraph plain-English narrative of the meeting from start to finish, '
+        'as ONE JSON string with paragraphs separated by \\n\\n>",\n'
         '  "timeline": [{"time": "mm:ss", "event": "<what happened / what the discussion moved to>"}],\n'
         '  "topics": [\n'
         '    {"topic": "<short name>", "start": "mm:ss", "end": "mm:ss", "approx_minutes": <number>,\n'

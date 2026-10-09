@@ -72,8 +72,12 @@ training-analysis/
 │   ├── __main__.py       # thin CLI: load_config() -> api.run()
 │   ├── api.py            # programmatic build_config()/run() — used by the EC2 worker
 │   ├── config.py         # env + training-temp.json → Config; builds container paths
-│   ├── openai_client.py  # GPT-4o wrapper (text + vision), with MOCK_OPENAI stub mode
-│   ├── transcript.py     # VTT parse / Whisper fallback, metrics, GPT-4o coverage + integrity
+│   ├── openai_client.py  # LLM wrapper (OpenAI + OpenAI-compatible TechSara API); make_clients()
+│   │                     #  one client per LLM_PROVIDERS entry; drops fields a server rejects;
+│   │                     #  repairs/retries non-JSON replies; MOCK_OPENAI stub mode
+│   ├── transcript.py     # load (VTT / techsara-whisper / combined), metrics, LLM coverage + integrity
+│   ├── whisper_api.py    # techsara-whisper: chunked parallel transcription via the TechSara API
+│   ├── combine.py        # Zoom VTT (speaker names) + Whisper (text) -> one labeled transcript
 │   ├── video.py          # frames + MediaPipe (presence, gaze) + InsightFace (identity/swap)
 │   ├── proof.py          # builds output/proof/ — evidence folder per red flag
 │   ├── report.py         # renders result.json → output/report.html (non-technical view;
@@ -116,6 +120,24 @@ training-analysis/
    Both text calls + the vision call run on `OPENAI_MODEL` (default `gpt-5.5`
    with `OPENAI_REASONING_EFFORT=high`); `openai_client.py` auto-drops
    temperature/seed for reasoning models that reject them.
+
+**Models + combined transcript (2026-10-08)** — `LLM_PROVIDERS` (comma list, first =
+PRIMARY) picks which LLMs analyze the transcript: `openai` (default), `techsara`
+(self-hosted `techsara-35b` at ai.techsarasolutions.com, Qwen-based, OpenAI-compatible
+chat API but it REJECTS unknown fields — `response_format`, `seed`, `reasoning_effort` —
+which the client drops + remembers). Transcript + video run ONCE; each model writes its
+own analysis in parallel. Primary -> `result.json`/`report.html`/`proof/` (merge +
+Salesforce); with 2+ models each also gets `result-<model>.json`, `report-<model>.html`,
+`proof-<model>/`, plus `model-comparison.json`. Plan: testing `techsara,openai`, live
+`techsara`. techsara-35b quirk: writes multi-paragraph values as separate strings
+(invalid JSON) — prompt asks for ONE string and `_merge_orphan_strings` repairs it.
+`TECHSARA_WHISPER=true` -> transcribe with techsara-whisper (10-min chunks, 3 parallel;
+~1x real time per chunk on the current server; one 2-h upload never answered) and
+`combine.py` merges it with the Zoom VTT: Whisper text, Zoom speaker per moment, Zoom
+cue kept where Whisper missed speech, short unmatched Whisper text dropped as
+hallucination. Saved: `transcript-whisper.json`, `transcript-combined.vtt/.json`
+(each line has `source` whisper|zoom). Whisper failure never fails a job (falls back
+to VTT). The worker extends the SQS message visibility every 5 min (heartbeat).
 
 **Video track** (`video.py`) — 100% local, CPU-only, no GPU, no cloud vision:
 - **MediaPipe Face Detection** → dense per-frame presence (face vs screen-share).
@@ -310,7 +332,10 @@ cheaper), `OPENAI_REASONING_EFFORT` (gpt-5.x/o* only: none..xhigh),
 `TRANSCRIPT_FILE`, `TRAINER_IMAGE_FILE`, `TRAINING_TEMP_FILE` (blank = auto-detect
 `training-temp.json`) · `DAY_NUMBER`, `TRAINER_NAME`, `CANDIDATE_NAME` (ignored if
 a temp file is present) · `ENABLE_VIDEO_ANALYSIS`, `FRAME_FPS`,
-`IDENTITY_SAMPLE_SEC`, `WHISPER_MODEL`, `SAVE_EVIDENCE_FRAMES` ·
+`IDENTITY_SAMPLE_SEC`, `WHISPER_MODEL`, `SAVE_EVIDENCE_FRAMES` · `LLM_PROVIDERS`,
+`TECHSARA_API_KEY`, `TECHSARA_BASE_URL`, `TECHSARA_MODEL`, `TECHSARA_REASONING_EFFORT`,
+`TECHSARA_WHISPER`, `TECHSARA_WHISPER_MODEL`, `WHISPER_CHUNK_SEC`, `WHISPER_PARALLEL`,
+`TECHSARA_SECRET_NAME` (worker) ·
 
 ## 11. Remaining work / roadmap
 

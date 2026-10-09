@@ -38,14 +38,40 @@ def _float(name: str, default: float) -> float:
     return float(raw) if raw else default
 
 
+def _str(name: str, default: str = "") -> str:
+    return os.environ.get(name, "").strip() or default
+
+
 @dataclass
 class Config:
+    # LLM providers, in order. The FIRST one that succeeds is the PRIMARY result
+    # (result.json / report.html / proof/ -> session merge + Salesforce); every
+    # provider also gets its own result-<model>.json + report-<model>.html.
+    #   testing : LLM_PROVIDERS=techsara,openai   (both saved, ours primary)
+    #   live    : LLM_PROVIDERS=techsara          (only our model)
+    llm_providers: list = field(default_factory=lambda: ["openai"])
+
     # OpenAI (transcript reasoning)
     openai_api_key: str = ""
     openai_model:   str = "gpt-4o"
     # reasoning models (gpt-5.x / o*) only: none|low|medium|high|xhigh; blank = model default
     openai_reasoning_effort: str = ""
+    openai_base_url: str = ""          # blank = api.openai.com
     mock_openai:    bool = False
+
+    # TechSara self-hosted models (https://ai.techsarasolutions.com, OpenAI-compatible)
+    techsara_api_key:  str = ""
+    techsara_base_url: str = "https://ai.techsarasolutions.com/v1"
+    techsara_model:    str = "techsara-35b"
+    # sent if set; the server drops it today (no thinking phase exposed yet) and the
+    # client stops resending it — it takes effect automatically once the server supports it
+    techsara_reasoning_effort: str = ""
+    # techsara-whisper: transcribe the recording and COMBINE it with the Zoom VTT
+    # (Whisper text + Zoom speaker labels) -> transcript-combined.vtt/.json
+    techsara_whisper:       bool = False
+    techsara_whisper_model: str = "techsara-whisper"
+    whisper_chunk_sec:      int = 600       # audio is sent in chunks of this length
+    whisper_parallel:       int = 3         # chunks transcribed at the same time
 
     # Input
     video_path:          str = ""
@@ -111,10 +137,7 @@ def load_config() -> Config:
                  else os.path.join(INPUT_DIR, "training-temp.json"))
 
     cfg = Config(
-        openai_api_key=os.environ.get("OPENAI_API_KEY", "").strip(),
-        openai_model=os.environ.get("OPENAI_MODEL", "gpt-4o").strip(),
-        openai_reasoning_effort=os.environ.get("OPENAI_REASONING_EFFORT", "").strip(),
-        mock_openai=_bool("MOCK_OPENAI", False),
+        **model_settings(),
 
         video_path=os.path.join(INPUT_DIR, video_file),
         transcript_path=os.path.join(INPUT_DIR, transcript_file) if transcript_file else None,
@@ -147,6 +170,30 @@ def load_config() -> Config:
         cfg.day_plan = json.load(fh)
 
     return cfg
+
+
+def model_settings() -> dict:
+    """LLM + transcription settings from env — shared by docker mode and the worker."""
+    providers = [p.strip().lower() for p in _str("LLM_PROVIDERS", "openai").split(",") if p.strip()]
+    unknown = [p for p in providers if p not in ("openai", "techsara")]
+    if unknown:
+        raise ValueError(f"LLM_PROVIDERS: unknown provider(s) {unknown}; use openai and/or techsara")
+    return {
+        "llm_providers": providers or ["openai"],
+        "openai_api_key": _str("OPENAI_API_KEY"),
+        "openai_model": _str("OPENAI_MODEL", "gpt-4o"),
+        "openai_reasoning_effort": _str("OPENAI_REASONING_EFFORT"),
+        "openai_base_url": _str("OPENAI_BASE_URL"),
+        "mock_openai": _bool("MOCK_OPENAI", False),
+        "techsara_api_key": _str("TECHSARA_API_KEY"),
+        "techsara_base_url": _str("TECHSARA_BASE_URL", "https://ai.techsarasolutions.com/v1"),
+        "techsara_model": _str("TECHSARA_MODEL", "techsara-35b"),
+        "techsara_reasoning_effort": _str("TECHSARA_REASONING_EFFORT"),
+        "techsara_whisper": _bool("TECHSARA_WHISPER", False),
+        "techsara_whisper_model": _str("TECHSARA_WHISPER_MODEL", "techsara-whisper"),
+        "whisper_chunk_sec": _int("WHISPER_CHUNK_SEC", 600),
+        "whisper_parallel": _int("WHISPER_PARALLEL", 3),
+    }
 
 
 def _apply_training_temp(cfg: Config) -> None:
