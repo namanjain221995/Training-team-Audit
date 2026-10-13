@@ -424,3 +424,9 @@ no S3 download for them. Lookup: exact filename first, then case-insensitive ste
 Adding a new trainer = drop the photo in `trainer/` and push.
 
 Manual reprocess: `python -m worker.worker --once --bucket <b> --prefix <meeting prefix>`.
+
+Reports are SELF-CONTAINED (2026-10-13): report.py embeds evidence images + proof texts into
+the html, so it works opened from S3 (presigned link = html only) or downloaded alone; the
+42 MB analysis video stays a file — if it can't load next to the report, the page shows its
+S3 path + a file picker. Re-render existing reports in S3 with the current report.py (no
+re-analysis, no model calls): `python -m worker.rebuild_reports [--dry-run] [--prefix ...]`.
