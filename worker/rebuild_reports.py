@@ -43,6 +43,15 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="stop after N meetings (0 = all)")
     ap.add_argument("--force", action="store_true", help="also redo reports already rebuilt")
     args = ap.parse_args()
+    # line-buffered: under `nohup ... > log` progress shows in the log immediately
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
+    other = _other_run_pid()
+    if other:
+        print(f"Another rebuild is already running (pid {other}). Watch it with "
+              f"`tail -f /tmp/rebuild.log`, or stop it first: sudo kill {other}")
+        return 2
 
     import boto3
     s3 = boto3.client("s3", region_name=REGION)
@@ -60,7 +69,12 @@ def main() -> int:
 
 def rebuild_all(s3, bucket: str, prefix: str, dry_run: bool = False, limit: int = 0,
                 force: bool = False) -> dict:
+    print(f"Listing s3://{bucket}/{prefix} ...")
     keys = set(_list_keys(s3, bucket, prefix))
+    n_reports = sum(1 for k in keys if k.rsplit("/", 1)[-1].startswith("report")
+                    and k.endswith(".html"))
+    print(f"{len(keys)} objects, {n_reports} report(s); checking which are already at "
+          f"version {R.REPORT_VERSION}{' (skipped: --force)' if force else ''} ...")
     # meeting folder -> [(result json name, report html name)] for reports still to rebuild
     meetings: dict[str, list[tuple[str, str]]] = {}
     skipped = 0
@@ -148,6 +162,29 @@ def _evidence_paths(result: dict) -> set:
 # not stop the instance — so a deploy/restart of the worker can't cut the run short.
 _LOCK = (os.environ.get("MAINTENANCE_LOCK", "").strip()
          or os.path.join(tempfile.gettempdir(), "training-audit-maintenance.lock"))
+
+
+def _other_run_pid() -> int | None:
+    """pid of another live rebuild holding the lock (two runs would redo the same
+    meetings and interleave one log), else None. Stale locks are ignored."""
+    try:
+        with open(_LOCK) as fh:
+            pid = int(fh.read().strip() or 0)
+    except (OSError, ValueError):
+        return None
+    if pid <= 0 or pid == os.getpid() or os.name == "nt":
+        return None
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return pid
+    except OSError:
+        return None
+    try:                                  # pid reuse: only count it if it is a rebuild
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return pid if b"rebuild_reports" in fh.read() else None
+    except OSError:
+        return pid
 
 
 def _hold_instance() -> None:
