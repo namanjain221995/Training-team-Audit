@@ -36,7 +36,16 @@ _IMG_EXT = (".jpg", ".jpeg", ".png", ".webp")
 _EMBED_MAX_BYTES = 25 * 1024 * 1024   # past this, images fall back to relative links
 _EMBED_IMG_MAX_W = 960
 _EMBED_TXT_MAX = 20000
-_assets = {"base": None, "keys": {}, "data": {}, "bytes": 0}
+_assets = {"base": None, "keys": {}, "data": {}, "bytes": 0, "video": None}
+# The analysis video is re-encoded smaller (same timing) and embedded when it fits
+# EMBED_VIDEO_MAX_MB (blank = 20, 0 = never): the report then plays it wherever it is
+# opened. Tried in order until one fits: (max width, x264 crf).
+_VIDEO_TIERS = ((960, 30), (854, 32), (640, 34))
+_video_cache: dict = {}
+
+# Bump when the report changes in a way old reports should get (rebuild_reports
+# compares it with the S3 object's "report-version" metadata).
+REPORT_VERSION = "2026-10-13.video-embed"
 
 REASON_INFO = {
     "proxy_interview_coaching": ("Possible proxy-interview coaching",
@@ -260,11 +269,11 @@ def write(result: dict, out_path: str) -> str:
 def render(result: dict, base_dir: str | None = None) -> str:
     """base_dir = folder the proof/ paths are relative to (enables embedding)."""
     global _assets
-    _assets = {"base": base_dir, "keys": {}, "data": {}, "bytes": 0}
+    _assets = {"base": base_dir, "keys": {}, "data": {}, "bytes": 0, "video": None}
     try:
         return _render(result)
     finally:
-        _assets = {"base": None, "keys": {}, "data": {}, "bytes": 0}
+        _assets = {"base": None, "keys": {}, "data": {}, "bytes": 0, "video": None}
 
 
 def _render(result: dict) -> str:
@@ -352,6 +361,16 @@ def _script(session_dur):
         "(function(){ var v=_vid(); if(!v){ return; }\n"
         "  v.addEventListener('error', _vidFail, true);\n"
         "  var s=v.querySelector('source'); if(s){ s.addEventListener('error', _vidFail); }\n"
+        # embedded copy (works wherever the report is opened): base64 -> Blob -> object URL
+        "  var el=document.getElementById('vidData');\n"
+        "  if(el){\n"
+        "    var b64=el.textContent.trim(), use=function(blob){ v.src=URL.createObjectURL(blob); v.load(); };\n"
+        "    fetch('data:video/mp4;base64,'+b64).then(function(r){ return r.blob(); }).then(use)\n"
+        "      .catch(function(){ try { var bin=atob(b64), u=new Uint8Array(bin.length);\n"
+        "        for(var i=0;i<bin.length;i++){ u[i]=bin.charCodeAt(i); }\n"
+        "        use(new Blob([u], {type:'video/mp4'})); } catch(e) { _vidFail(); } });\n"
+        "    return;\n"
+        "  }\n"
         "  if(_vidBroken(v)){ _vidFail(); } })();\n"
         # embedded evidence frames: each unique image is stored once, then shared
         "var EV={}; try { EV=JSON.parse(document.getElementById('evData').textContent); } catch(e) {}\n"
@@ -948,10 +967,14 @@ def _video_card(result):
     player = ""
     vid = video.get("analysis_video")
     if vid:
+        _assets["video"] = _embedded_video(vid)
+        # embedded copy -> no src here (the page script plays the embedded bytes);
+        # otherwise load the file next to the report, with the picker as fallback
+        src = "" if _assets["video"] else f" src='{_e(vid)}'"
         player = (
             f"<div class='subh'>Watch what the models saw</div>"
             f"<video id='analysisVideo' controls preload='metadata' style='width:100%;border-radius:12px;"
-            f"background:#000' src='{_e(vid)}'></video>"
+            f"background:#000'{src}></video>"
             + _video_missing_box(result, vid) +
             f"<div class='legend' style='margin-top:5px'>"
             f"<span class='dot' style='background:#ffa03c'></span>orange = trainer &nbsp;"
@@ -1240,8 +1263,66 @@ def _image_bytes(full):
 
 def _evidence_data():
     # base64 + JSON never contains "</", so it is safe inside a script element
+    vid = (f"<script type='application/octet-stream' id='vidData'>{_assets['video']}</script>"
+           if _assets.get("video") else "")
     return (f"<script type='application/json' id='evData'>"
-            f"{json.dumps(_assets['data'])}</script>")
+            f"{json.dumps(_assets['data'])}</script>{vid}")
+
+
+def _embedded_video(rel):
+    """base64 of a compact copy of the analysis video, or None (too big / no ffmpeg /
+    file missing). Cached, so the 2-3 reports of one meeting encode it once."""
+    full = _asset_path(rel)
+    try:
+        budget = float(os.environ.get("EMBED_VIDEO_MAX_MB", "").strip() or 20) * 1024 * 1024
+    except ValueError:
+        budget = 20 * 1024 * 1024
+    if not full or budget <= 0:
+        return None
+    st = os.stat(full)
+    ck = (full, st.st_size, st.st_mtime, budget)
+    if ck not in _video_cache:
+        data = None
+        if st.st_size <= budget:
+            with open(full, "rb") as fh:
+                data = fh.read()
+        else:
+            for width, crf in _VIDEO_TIERS:
+                data = _compact_video(full, width, crf)
+                if data is None or len(data) <= budget:
+                    break
+            if data is not None and len(data) > budget:
+                print(f"      analysis video still {len(data) / 2**20:.1f} MB after compression; "
+                      f"not embedded (EMBED_VIDEO_MAX_MB={budget / 2**20:g})")
+                data = None
+        _video_cache.clear()          # keep only the current meeting's video in memory
+        _video_cache[ck] = base64.b64encode(data).decode() if data else None
+    return _video_cache[ck]
+
+
+def _compact_video(full, width, crf):
+    """Re-encode with ffmpeg: same frame rate/duration (so timestamps still seek
+    correctly), at most `width` px wide, no audio. None if ffmpeg is unavailable."""
+    import subprocess
+    import tempfile
+    fd, out = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", full,
+             "-vf", f"scale='min({width},iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", out],
+            check=True, capture_output=True, timeout=1800)
+        with open(out, "rb") as fh:
+            return fh.read()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"      could not compress the analysis video for embedding ({exc!r:.200})")
+        return None
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
 
 
 def _find_flag(result, ftype):

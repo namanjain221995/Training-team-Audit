@@ -41,6 +41,7 @@ import urllib.request
 import boto3
 
 from analyzer import api
+from analyzer.report import REPORT_VERSION
 from worker import merge as session_merge
 
 REGION       = os.environ.get("AWS_REGION", "us-east-1").strip() or "us-east-1"
@@ -340,7 +341,11 @@ def _upload_dir(s3, bucket: str, prefix: str, out_dir: str) -> int:
             local = os.path.join(root, f)
             rel = os.path.relpath(local, out_dir).replace(os.sep, "/")
             ctype = mimetypes.guess_type(f)[0] or "application/octet-stream"
-            s3.upload_file(local, bucket, prefix + rel, ExtraArgs={"ContentType": ctype})
+            extra = {"ContentType": ctype}
+            if f.startswith("report") and f.endswith(".html"):
+                # lets worker.rebuild_reports skip reports already at the current version
+                extra["Metadata"] = {"report-version": REPORT_VERSION}
+            s3.upload_file(local, bucket, prefix + rel, ExtraArgs=extra)
             n += 1
     return n
 

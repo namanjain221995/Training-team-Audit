@@ -2,14 +2,14 @@
 
 No re-analysis, no model calls: for every meeting folder under the prefix it
 downloads each result*.json plus only the proof files it references, re-renders
-the matching report*.html (evidence images + proof texts embedded, video
-fallback — see analyzer/report.py) and uploads it over the old one. A meeting
-that fails is reported and skipped.
+the matching report*.html (evidence images, proof texts and a compact copy of
+the analysis video embedded — see analyzer/report.py) and uploads it over the old
+one. A meeting that fails is reported and skipped.
 
-RESUMABLE: if a run is interrupted (instance stopped, session closed), run it
-again — reports already rebuilt are skipped. "Already rebuilt" = the report was
-saved more than REBUILT_AFTER_SEC after its result json (the worker writes both
-together; this script rewrites only the report, later). --force redoes all.
+RESUMABLE: every report this script (or the worker) uploads is tagged with S3
+metadata report-version = analyzer.report.REPORT_VERSION. Reports already at the
+current version are skipped, so an interrupted run just continues; bumping
+REPORT_VERSION makes the next run redo every older report. --force redoes all.
 
   python -m worker.rebuild_reports --dry-run              # list what would change
   python -m worker.rebuild_reports                        # every meeting under Training/
@@ -28,12 +28,11 @@ import tempfile
 
 from analyzer import report as R
 
-REBUILT_AFTER_SEC = 600
-
 BUCKET = os.environ.get("S3_BUCKET", "zoom-automation-bucket").strip() or "zoom-automation-bucket"
 REGION = os.environ.get("AWS_REGION", "us-east-1").strip() or "us-east-1"
 _RESULT = re.compile(r"^result(-[^/]+)?\.json$")       # result.json, result-<model>.json
 _EVIDENCE_EXT = R._IMG_EXT + (".txt",)
+_VERSION_META = "report-version"
 
 
 def main() -> int:
@@ -54,15 +53,14 @@ def main() -> int:
     finally:
         _release_instance()
     print(f"\nDone: {totals['meetings']} meeting(s), {totals['reports']} report(s) "
-          f"{'would be ' if args.dry_run else ''}rebuilt, {totals['skipped']} already rebuilt "
+          f"{'would be ' if args.dry_run else ''}rebuilt, {totals['skipped']} already current "
           f"(skipped), {totals['failed']} failed.")
     return 1 if totals["failed"] else 0
 
 
 def rebuild_all(s3, bucket: str, prefix: str, dry_run: bool = False, limit: int = 0,
                 force: bool = False) -> dict:
-    listed = dict(_list_keys(s3, bucket, prefix))      # key -> LastModified
-    keys = set(listed)
+    keys = set(_list_keys(s3, bucket, prefix))
     # meeting folder -> [(result json name, report html name)] for reports still to rebuild
     meetings: dict[str, list[tuple[str, str]]] = {}
     skipped = 0
@@ -75,12 +73,12 @@ def rebuild_all(s3, bucket: str, prefix: str, dry_run: bool = False, limit: int 
         rkey = f"{folder}/{report}"
         if rkey not in keys:
             continue
-        if not force and _already_rebuilt(listed[rkey], listed[k]):
+        if not force and _is_current(s3, bucket, rkey):
             skipped += 1
             continue
         meetings.setdefault(folder, []).append((name, report))
     if skipped:
-        print(f"{skipped} report(s) already rebuilt by an earlier run - skipped (--force to redo)")
+        print(f"{skipped} report(s) already at version {R.REPORT_VERSION} - skipped (--force to redo)")
 
     totals = {"meetings": 0, "reports": 0, "failed": 0, "skipped": skipped}
     for folder in sorted(meetings):
@@ -110,7 +108,7 @@ def _rebuild_meeting(s3, bucket: str, folder: str, pairs, keys: set) -> int:
             with open(local_json, encoding="utf-8") as fh:
                 result = json.load(fh)
             got = 0
-            for rel in _evidence_paths(result):
+            for rel in _evidence_paths(result) | _video_path(result):
                 key = f"{folder}/{rel}"
                 dst = os.path.normpath(os.path.join(work, rel))
                 if key not in keys or not dst.startswith(os.path.normpath(work) + os.sep):
@@ -121,8 +119,10 @@ def _rebuild_meeting(s3, bucket: str, folder: str, pairs, keys: set) -> int:
                 got += 1
             out = R.write(result, os.path.join(work, report_name))
             s3.upload_file(out, bucket, f"{folder}/{report_name}",
-                           ExtraArgs={"ContentType": "text/html; charset=utf-8"})
-            print(f"    {report_name}: rebuilt with {got} evidence file(s)")
+                           ExtraArgs={"ContentType": "text/html; charset=utf-8",
+                                      "Metadata": {_VERSION_META: R.REPORT_VERSION}})
+            print(f"    {report_name}: rebuilt with {got} evidence file(s), "
+                  f"{os.path.getsize(out) / 2**20:.1f} MB")
             done += 1
         return done
     finally:
@@ -169,19 +169,25 @@ def _release_instance() -> None:
         pass
 
 
-def _already_rebuilt(report_modified, result_modified) -> bool:
-    """The report was rewritten well after its result json -> this script did it."""
+def _is_current(s3, bucket: str, key: str) -> bool:
+    """The report in S3 was rendered by the current report.py."""
     try:
-        return (report_modified - result_modified).total_seconds() > REBUILT_AFTER_SEC
-    except (TypeError, AttributeError):
+        meta = s3.head_object(Bucket=bucket, Key=key).get("Metadata") or {}
+    except Exception:
         return False
+    return meta.get(_VERSION_META) == R.REPORT_VERSION
+
+
+def _video_path(result: dict) -> set:
+    """The analysis video, so the report can embed a compact copy of it."""
+    vid = (result.get("video") or {}).get("analysis_video")
+    return {vid} if isinstance(vid, str) and vid.lower().endswith(".mp4") and not os.path.isabs(vid) else set()
 
 
 def _list_keys(s3, bucket: str, prefix: str):
-    """-> (key, LastModified) for every object under the prefix."""
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
         for o in page.get("Contents") or []:
-            yield o["Key"], o.get("LastModified")
+            yield o["Key"]
 
 
 if __name__ == "__main__":

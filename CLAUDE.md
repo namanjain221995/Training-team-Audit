@@ -426,12 +426,16 @@ Adding a new trainer = drop the photo in `trainer/` and push.
 Manual reprocess: `python -m worker.worker --once --bucket <b> --prefix <meeting prefix>`.
 
 Reports are SELF-CONTAINED (2026-10-13): report.py embeds evidence images + proof texts into
-the html, so it works opened from S3 (presigned link = html only) or downloaded alone; the
-42 MB analysis video stays a file — if it can't load next to the report, the page shows its
-S3 path + a file picker. Re-render existing reports in S3 with the current report.py (no
-re-analysis, no model calls): `python -m worker.rebuild_reports [--dry-run] [--prefix ...]`.
-Resumable: a report saved >10 min after its result json counts as already rebuilt and is
-skipped, so an interrupted run just continues (`--force` redoes all). Safe with the
+the html, so it works opened from S3 (presigned link = html only) or downloaded alone. The
+analysis video is embedded too: ffmpeg re-encodes it smaller (same duration, so timestamps
+still seek; 960/854/640 px tiers) until it fits `EMBED_VIDEO_MAX_MB` (default 20; a 42.7 MB
+2-h video -> ~8 MB) and the page plays it from a Blob. Only if no tier fits does the page fall
+back to loading analysis-video.mp4 next to it / showing its S3 path + a file picker.
+Re-render existing reports in S3 with the current report.py (no re-analysis, no model
+calls): `python -m worker.rebuild_reports [--dry-run] [--prefix ...]`. Resumable: every
+uploaded report carries S3 metadata `report-version` = `report.REPORT_VERSION`; reports at
+the current version are skipped, so an interrupted run just continues. Bump REPORT_VERSION
+when a report change should reach old reports (`--force` redoes all regardless). Safe with the
 worker service running: while it runs it holds MAINTENANCE_LOCK (its pid) and the worker's
 idle timer will not stop the instance (a deploy's `systemctl restart` once killed a run this
 way). Run it under `nohup` (closing the SSM session kills foreground processes).
