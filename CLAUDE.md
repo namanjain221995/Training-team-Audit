@@ -432,5 +432,6 @@ S3 path + a file picker. Re-render existing reports in S3 with the current repor
 re-analysis, no model calls): `python -m worker.rebuild_reports [--dry-run] [--prefix ...]`.
 Resumable: a report saved >10 min after its result json counts as already rebuilt and is
 skipped, so an interrupted run just continues (`--force` redoes all). Safe with the
-worker service stopped (its idle timer stops the instance) and under `nohup` (closing the SSM
-session kills foreground processes).
+worker service running: while it runs it holds MAINTENANCE_LOCK (its pid) and the worker's
+idle timer will not stop the instance (a deploy's `systemctl restart` once killed a run this
+way). Run it under `nohup` (closing the SSM session kills foreground processes).
