@@ -47,8 +47,12 @@ def main() -> int:
 
     import boto3
     s3 = boto3.client("s3", region_name=REGION)
-    totals = rebuild_all(s3, args.bucket, args.prefix, dry_run=args.dry_run, limit=args.limit,
-                         force=args.force)
+    _hold_instance()
+    try:
+        totals = rebuild_all(s3, args.bucket, args.prefix, dry_run=args.dry_run, limit=args.limit,
+                             force=args.force)
+    finally:
+        _release_instance()
     print(f"\nDone: {totals['meetings']} meeting(s), {totals['reports']} report(s) "
           f"{'would be ' if args.dry_run else ''}rebuilt, {totals['skipped']} already rebuilt "
           f"(skipped), {totals['failed']} failed.")
@@ -137,6 +141,32 @@ def _evidence_paths(result: dict) -> set:
     if isinstance(cov, str):
         paths.add(cov)
     return {p for p in paths if p.lower().endswith(_EVIDENCE_EXT) and not os.path.isabs(p)}
+
+
+# Same path as worker.worker.MAINTENANCE_LOCK (not imported: that module pulls in the
+# whole analyzer). While this file names our live pid, the worker's idle timer will
+# not stop the instance — so a deploy/restart of the worker can't cut the run short.
+_LOCK = (os.environ.get("MAINTENANCE_LOCK", "").strip()
+         or os.path.join(tempfile.gettempdir(), "training-audit-maintenance.lock"))
+
+
+def _hold_instance() -> None:
+    try:
+        with open(_LOCK, "w") as fh:
+            fh.write(str(os.getpid()))
+        print(f"(holding the instance awake while this runs: {_LOCK})")
+    except OSError as exc:
+        print(f"(could not write {_LOCK}: {exc}; stop the worker service so it can't idle-stop)")
+
+
+def _release_instance() -> None:
+    try:
+        with open(_LOCK) as fh:
+            mine = fh.read().strip() == str(os.getpid())
+        if mine:
+            os.remove(_LOCK)
+    except OSError:
+        pass
 
 
 def _already_rebuilt(report_modified, result_modified) -> bool:
