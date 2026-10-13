@@ -131,6 +131,14 @@ Salesforce); with 2+ models each also gets `result-<model>.json`, `report-<model
 `proof-<model>/`, plus `model-comparison.json`. Plan: testing `techsara,openai`, live
 `techsara`. techsara-35b quirk: writes multi-paragraph values as separate strings
 (invalid JSON) — prompt asks for ONE string and `_merge_orphan_strings` repairs it.
+**Parity guard (2026-10-13):** every model gets the WHOLE transcript (`LLM_TRANSCRIPT_MAX_CHARS`,
+default 400k; a "context too long" error halves it and retries, thinning lines evenly — never
+a hole in the middle; the old 60k head+tail cut dropped the middle of 2-h sessions). Replies
+are validated (`_coverage_problems` / `_description_problems`: every planned section present,
+valid statuses, ≥1 topic per ~10 min, topics reach the session end) and sent back ONCE with
+the exact problems (`chat_json(validate=...)`). A coverage reply still unusable after that
+RAISES → that model lands in `llm_failures` (never a fake 0% score). `meeting.llm.calls` /
+`corrections` and `transcript_sent` show what each model needed.
 `TECHSARA_WHISPER=true` -> transcribe with techsara-whisper (10-min chunks, 3 parallel;
 ~1x real time per chunk on the current server; one 2-h upload never answered) and
 `combine.py` merges it with the Zoom VTT: Whisper text, Zoom speaker per moment, Zoom

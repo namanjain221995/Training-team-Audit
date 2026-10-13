@@ -35,6 +35,7 @@ class OpenAIClient:
         self.reasoning_effort = (reasoning_effort or "").strip().lower()
         self._client = None
         self._dropped: set[str] = set()   # fields this server rejected; never resent
+        self.stats = {"calls": 0, "corrections": 0}
         if not mock:
             if not api_key:
                 var = "TECHSARA_API_KEY" if provider == "techsara" else "OPENAI_API_KEY"
@@ -50,13 +51,42 @@ class OpenAIClient:
                                   timeout=Timeout(None, connect=15.0), max_retries=3)
 
     # ── text -> JSON ────────────────────────────────────────────────────────
-    def chat_json(self, system: str, user: str) -> dict:
+    def chat_json(self, system: str, user: str, validate=None, corrections: int = 1) -> dict:
+        """validate(result) -> list of problems (empty = good). On invalid JSON or any
+        problem, the model gets its own reply back with the exact problems listed and
+        is asked for the corrected JSON (up to `corrections` times). Same treatment
+        for every provider: a server without JSON mode (techsara) is held to the same
+        output standard as one with it. Returns the reply with the fewest problems;
+        anything left unresolved is listed under `_problems`."""
         if self.mock:
             return {"_mock": True, "note": "MOCK_OPENAI is on; no real analysis performed."}
-        return self._call([
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ])
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        best, best_problems, best_rank = None, None, None
+        for attempt in range(corrections + 1):
+            result, raw, finish = self._call_once(messages)
+            if result.get("_parse_error"):
+                problems = ["the reply was not one valid JSON object"
+                            + (" (it was cut off: write shorter text values)" if finish == "length" else "")]
+                rank = float("inf")              # any parsed reply beats an unparsable one
+            else:
+                problems = list(validate(result)) if validate else []
+                rank = len(problems)
+            if best is None or rank <= best_rank:   # tie -> the later (corrected) reply
+                best, best_problems, best_rank = result, problems, rank
+            if not problems or attempt == corrections:
+                break
+            self.stats["corrections"] += 1
+            print(f"      [{self.model}] reply needs correction: {'; '.join(problems)[:300]}")
+            messages = messages[:2] + [
+                {"role": "assistant", "content": raw[:60000]},
+                {"role": "user", "content": (
+                    "Your reply has these problems:\n- " + "\n- ".join(problems) +
+                    "\n\nReturn the COMPLETE corrected JSON object (the whole object, not "
+                    "just the changed parts), with the exact shape requested. JSON only.")},
+            ]
+        if best_problems:
+            best["_problems"] = best_problems
+        return best
 
     # ── images + text -> JSON ───────────────────────────────────────────────
     def vision_json(self, system: str, prompt: str, image_paths: list[str]) -> dict:
@@ -73,15 +103,17 @@ class OpenAIClient:
 
     # ── internals ───────────────────────────────────────────────────────────
     def _call(self, messages: list) -> dict:
-        out = self._call_once(messages)
+        out = self._call_once(messages)[0]
         if out.get("_parse_error"):
             # no server-side JSON mode on some providers: one fresh attempt usually
             # comes back valid (the model is not deterministic even at temperature 0)
             print(f"      [{self.model}] reply was not valid JSON; retrying once")
-            out = self._call_once(messages)
+            out = self._call_once(messages)[0]
         return out
 
-    def _call_once(self, messages: list) -> dict:
+    def _call_once(self, messages: list) -> tuple[dict, str, str | None]:
+        """-> (parsed JSON, raw reply text, finish_reason)."""
+        self.stats["calls"] += 1
         kwargs = {
             "model": self.model,
             "response_format": {"type": "json_object"},
@@ -116,7 +148,11 @@ class OpenAIClient:
                 print(f"      model server rejected {named}; retrying without")
         else:
             raise RuntimeError("model server kept rejecting request fields")
-        return _safe_json(resp.choices[0].message.content)
+        choice = resp.choices[0]
+        raw = choice.message.content or ""
+        if choice.finish_reason == "length":
+            print(f"      [{self.model}] reply hit the output-token limit (truncated)")
+        return _safe_json(raw), raw, choice.finish_reason
 
     def _is_reasoning_model(self) -> bool:
         m = self.model.lower()
@@ -138,6 +174,15 @@ def make_clients(cfg) -> list[OpenAIClient]:
                                         reasoning_effort=cfg.techsara_reasoning_effort,
                                         base_url=cfg.techsara_base_url, provider="techsara"))
     return clients
+
+
+def is_context_length_error(exc: Exception) -> bool:
+    """The prompt is larger than the model's context window (wording differs per server)."""
+    text = str(exc).lower()
+    return (("context" in text and any(w in text for w in ("length", "window", "exceed", "too long")))
+            or ("maximum" in text and "token" in text)
+            or "too many tokens" in text or "prompt is too long" in text
+            or "input is too long" in text or "error code: 413" in text)
 
 
 def _strip(kwargs: dict, field: str) -> None:

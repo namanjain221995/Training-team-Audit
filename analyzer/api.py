@@ -270,6 +270,9 @@ def run(cfg: Config) -> int:
             "reasoning_effort": oa.reasoning_effort or None,
             # fields this server refused (e.g. reasoning_effort on techsara today)
             "fields_not_supported": sorted(oa._dropped),
+            # model calls made, and how many were correction requests (bad JSON /
+            # missing sections / too-coarse topics sent back to the model to fix)
+            "calls": oa.stats["calls"], "corrections": oa.stats["corrections"],
             "elapsed_sec": an["elapsed_sec"]})
         results.append(scoring.assemble(meta, transcript_result, copy.deepcopy(video_result), cfg))
 
