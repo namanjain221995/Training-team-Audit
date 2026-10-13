@@ -9,8 +9,7 @@ transcript webhook lands and training-temp.json is written):
      TRAINER_PHOTOS_DIR).
   2. Run the full analyzer (analyzer.api) in a per-job temp dir.
   3. Upload result.json, report.html, analysis-video.mp4 and the whole proof/
-     folder BACK TO THE SAME MEETING PREFIX — plus, when enabled, every model's
-     result-<model>.json / report-<model>.html / model-comparison.json and the
+     folder BACK TO THE SAME MEETING PREFIX — plus, when enabled, the
      transcripts (transcript-whisper.json, transcript-combined.vtt/.json). Nothing is kept on the instance —
      the temp dir is deleted after every job (only the model cache persists).
   4. Re-merge the session file: gather every sibling chunk's result.json for
@@ -41,7 +40,6 @@ import urllib.request
 import boto3
 
 from analyzer import api
-from analyzer.report import REPORT_VERSION
 from worker import merge as session_merge
 
 REGION       = os.environ.get("AWS_REGION", "us-east-1").strip() or "us-east-1"
@@ -64,10 +62,6 @@ MAX_RECEIVES = int(os.environ.get("MAX_RECEIVES", "3") or 3)
 # 30-min visibility timeout; keep pushing it out so the job is never re-delivered
 VISIBILITY_EXTEND_EVERY_SEC = 300
 VISIBILITY_EXTEND_TO_SEC = 1800
-# a maintenance job on this instance (e.g. worker.rebuild_reports) writes its pid
-# here; while that process is alive the idle timer never stops the instance
-MAINTENANCE_LOCK = (os.environ.get("MAINTENANCE_LOCK", "").strip()
-                    or os.path.join(tempfile.gettempdir(), "training-audit-maintenance.lock"))
 
 _shutdown = False
 
@@ -111,11 +105,6 @@ def loop() -> int:
         if not msgs:
             idle_min = (time.time() - last_active) / 60
             if STOP_WHEN_IDLE and idle_min >= IDLE_MINUTES:
-                if maintenance_running():
-                    print(f"Idle for {idle_min:.1f} min, but a maintenance job is running "
-                          f"({MAINTENANCE_LOCK}) — not stopping the instance.")
-                    last_active = time.time()
-                    continue
                 print(f"Idle for {idle_min:.1f} min — stopping this instance. "
                       f"(The Lambda starts it again on the next job.)")
                 _stop_self()
@@ -148,26 +137,6 @@ def loop() -> int:
 
     print("Worker exiting (signal).")
     return 0
-
-
-def maintenance_running() -> bool:
-    """True while the process named in MAINTENANCE_LOCK is alive (stale locks ignored)."""
-    try:
-        with open(MAINTENANCE_LOCK) as fh:
-            pid = int(fh.read().strip() or 0)
-    except (OSError, ValueError):
-        return False
-    if pid <= 0:
-        return False
-    if os.name == "nt":                  # os.kill would TERMINATE it on Windows; assume alive
-        return True
-    try:
-        os.kill(pid, 0)                  # signal 0: existence check only
-    except PermissionError:
-        return True                      # alive, owned by another user
-    except OSError:
-        return False
-    return True
 
 
 def _keep_invisible(sqs, receipt: str, stop: threading.Event) -> None:
@@ -341,11 +310,7 @@ def _upload_dir(s3, bucket: str, prefix: str, out_dir: str) -> int:
             local = os.path.join(root, f)
             rel = os.path.relpath(local, out_dir).replace(os.sep, "/")
             ctype = mimetypes.guess_type(f)[0] or "application/octet-stream"
-            extra = {"ContentType": ctype}
-            if f.startswith("report") and f.endswith(".html"):
-                # lets worker.rebuild_reports skip reports already at the current version
-                extra["Metadata"] = {"report-version": REPORT_VERSION}
-            s3.upload_file(local, bucket, prefix + rel, ExtraArgs=extra)
+            s3.upload_file(local, bucket, prefix + rel, ExtraArgs={"ContentType": ctype})
             n += 1
     return n
 
@@ -383,7 +348,7 @@ def _resolve_openai_key() -> None:
     if os.environ.get("MOCK_OPENAI", "").strip().lower() in ("1", "true", "yes", "on"):
         return
     providers = {p.strip().lower() for p in
-                 (os.environ.get("LLM_PROVIDERS", "") or "openai").split(",") if p.strip()}
+                 (os.environ.get("LLM_PROVIDERS", "") or "techsara").split(",") if p.strip()}
     whisper = os.environ.get("TECHSARA_WHISPER", "").strip().lower() in ("1", "true", "yes", "on")
     if "openai" in providers:
         _secret_to_env("OPENAI_API_KEY", OPENAI_SECRET_NAME)

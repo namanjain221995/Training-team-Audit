@@ -8,17 +8,13 @@ Two entry points:
 
 `python -m analyzer` (docker/local mode) is now a thin wrapper: load_config() -> run().
 
-Several LLMs (LLM_PROVIDERS=techsara,openai): the transcript + video tracks run ONCE;
-each model then writes its own analysis on the same inputs. The first model that
-succeeds is PRIMARY -> result.json / report.html / proof/ (what the session merge and
-Salesforce read). With more than one model, every model ALSO gets
-result-<model>.json + report-<model>.html (+ proof-<model>/ for non-primary ones),
-plus model-comparison.json side by side.
+One model analyzes the transcript (LLM_PROVIDERS, default techsara = techsara-35b).
+A comma list is a FALLBACK order: the next model runs only if the previous one
+fails. Output is always ONE result.json + report.html + proof/ (what the session
+merge and Salesforce read).
 """
-import copy
 import json
 import os
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -160,8 +156,11 @@ def run(cfg: Config) -> int:
     roles = metrics.get("speaker_roles", {})
     print(f"      source={source}  segments={len(segments)}  duration={metrics['duration_sec']}s")
 
-    # each model's transcript analysis runs in the background (network-bound)
-    # while the video track below runs on the local CPU
+    # the transcript analysis runs in the background (network-bound) while the
+    # video track below runs on the local CPU. LLM_PROVIDERS is a FALLBACK order:
+    # the first model is used; the next is tried only if it fails.
+    failures: list = []
+
     def analyze(oa):
         t0 = time.time()
         # topic analysis runs FIRST — coverage is anchored on it so the two views
@@ -177,9 +176,19 @@ def run(cfg: Config) -> int:
         return {"description": description, "coverage": coverage,
                 "elapsed_sec": round(time.time() - t0, 1)}
 
-    pool = ThreadPoolExecutor(max_workers=len(clients))
-    futures = [(oa, pool.submit(analyze, oa)) for oa in clients]
-    print(f"      transcript analysis started on: {', '.join(oa.model for oa in clients)}")
+    def analyze_first_working():
+        for oa in clients:
+            try:
+                return oa, analyze(oa)
+            except Exception as exc:
+                print(f"      [{oa.model}] FAILED: {exc!r}")
+                failures.append({"provider": oa.provider, "model": oa.model, "error": repr(exc)[:500]})
+        raise RuntimeError(f"every model failed: {failures}")
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    analysis = pool.submit(analyze_first_working)
+    print(f"      transcript analysis started on: {clients[0].model}"
+          + (f" (fallback: {', '.join(oa.model for oa in clients[1:])})" if len(clients) > 1 else ""))
 
     # ── [2/5] Video track ───────────────────────────────────────────────────
     frames, presence = [], []
@@ -211,26 +220,14 @@ def run(cfg: Config) -> int:
                   else "no frames analyzed")
         print(f"\n[3/5] Analysis video skipped ({reason})")
 
-    # ── [4/5] Score (one result per model) ──────────────────────────────────
+    # ── [4/5] Score ─────────────────────────────────────────────────────────
     print("\n[4/5] Waiting for transcript analysis, then scoring...")
-    done, failures = [], []
-    for oa, fut in futures:
-        try:
-            done.append((oa, fut.result()))
-        except Exception as exc:     # one model down must not cost the other's report
-            print(f"      [{oa.model}] FAILED: {exc!r}")
-            failures.append({"provider": oa.provider, "model": oa.model, "error": repr(exc)[:500]})
-    pool.shutdown()
-    if not done:
-        raise RuntimeError(f"every model failed: {failures}")
+    try:
+        oa, an = analysis.result()
+    finally:
+        pool.shutdown()
 
-    multi = len(done) > 1
-    labels = [_label(oa.model) for oa, _ in done]
-    reports = ([{"model": oa.model, "provider": oa.provider, "primary": i == 0,
-                 "report": f"report-{lb}.html", "result": f"result-{lb}.json"}
-                for i, ((oa, _), lb) in enumerate(zip(done, labels))] if multi else [])
-
-    meta_base = {
+    meta = {
         "video_file": os.path.basename(cfg.video_path),
         "meeting_id": cfg.meeting_id,
         "day": cfg.day_number,
@@ -251,35 +248,30 @@ def run(cfg: Config) -> int:
         "host_email": cfg.host_email,
         "participants": cfg.participants_timing,
         "transcript_source": source,
-        "reports": reports,
-        "llm_failures": failures,
-    }
-
-    results = []
-    for i, (oa, an) in enumerate(done):
-        transcript_result = {
-            "source": source,
-            "segment_count": len(segments),
-            "metrics": copy.deepcopy(metrics),
-            "coverage_analysis": an["coverage"],
-            "meeting_description": an["description"],
-            **({"sources": tinfo} if tinfo else {}),
-        }
-        meta = dict(meta_base, llm={
-            "provider": oa.provider, "model": oa.model, "primary": i == 0,
+        "llm_failures": failures,                      # models tried before this one
+        "llm": {
+            "provider": oa.provider, "model": oa.model,
             "reasoning_effort": oa.reasoning_effort or None,
             # fields this server refused (e.g. reasoning_effort on techsara today)
             "fields_not_supported": sorted(oa._dropped),
             # model calls made, and how many were correction requests (bad JSON /
             # missing sections / too-coarse topics sent back to the model to fix)
             "calls": oa.stats["calls"], "corrections": oa.stats["corrections"],
-            "elapsed_sec": an["elapsed_sec"]})
-        results.append(scoring.assemble(meta, transcript_result, copy.deepcopy(video_result), cfg))
+            "elapsed_sec": an["elapsed_sec"]},
+    }
+    transcript_result = {
+        "source": source,
+        "segment_count": len(segments),
+        "metrics": metrics,
+        "coverage_analysis": an["coverage"],
+        "meeting_description": an["description"],
+        **({"sources": tinfo} if tinfo else {}),
+    }
+    result = scoring.assemble(meta, transcript_result, video_result, cfg)
 
     # ── [5/5] Proof folder + report + write ─────────────────────────────────
     print("\n[5/5] Writing proof folder + report...")
-    for i, (result, lb) in enumerate(zip(results, labels)):
-        PR.build(result, cfg, frames, name="proof" if i == 0 else f"proof-{lb}")
+    PR.build(result, cfg, frames)
 
     # frames were analyzed in a local work dir; publish them to the output dir
     # in ONE bulk copy (after proof has taken its copies)
@@ -295,76 +287,28 @@ def run(cfg: Config) -> int:
                 print(f"      could not copy frames to output ({exc}); "
                       f"evidence images are still in proof/")
         if not saved:
-            for result in results:
-                result["video"].pop("evidence_frames_dir", None)
-                result["video"]["evidence_frames_saved"] = False
+            result["video"].pop("evidence_frames_dir", None)
+            result["video"]["evidence_frames_saved"] = False
 
-    written = []
-    for i, (result, lb) in enumerate(zip(results, labels)):
-        names = (["result.json", "report.html"] if i == 0 else []) + \
-                ([f"result-{lb}.json", f"report-{lb}.html"] if multi else [])
-        for name in names:
-            path = os.path.join(out_dir, name)
-            if name.endswith(".json"):
-                with open(path, "w", encoding="utf-8") as fh:
-                    json.dump(result, fh, indent=2, ensure_ascii=False)
-            else:
-                try:
-                    R.write(result, path)
-                except Exception as exc:  # the report must never kill a finished analysis
-                    print(f"      report {name} failed ({exc}); the json is unaffected")
-                    continue
-            written.append(name)
-    if multi:
-        with open(os.path.join(out_dir, "model-comparison.json"), "w", encoding="utf-8") as fh:
-            json.dump(_comparison(results), fh, indent=2, ensure_ascii=False)
-        written.append("model-comparison.json")
+    with open(cfg.output_path, "w", encoding="utf-8") as fh:
+        json.dump(result, fh, indent=2, ensure_ascii=False)
+    written = ["result.json"]
+    try:
+        R.write(result, os.path.join(out_dir, "report.html"))
+        written.append("report.html")
+    except Exception as exc:  # the report must never kill a finished analysis
+        print(f"      report.html failed ({exc}); the json is unaffected")
 
+    sc = result["scoring"]
     print("\n" + "=" * 70)
-    print(f"RESULT  ->  {cfg.output_path}   (primary model: {done[0][0].model})")
-    for result in results:
-        sc, llm = result["scoring"], result["meeting"]["llm"]
-        print(f"  [{llm['model']}{' *primary*' if llm['primary'] else ''}]  "
-              f"coverage {sc['trainer_coverage_score']}%  |  integrity "
-              f"{sc['session_integrity_score']}/100 ({sc['tier']})  |  {llm['elapsed_sec']}s")
-        for d in sc["deductions"]:
-            print(f"    {d['points']:>4}  {d['reason']}  ({d.get('evidence')})")
+    print(f"RESULT  ->  {cfg.output_path}   (model: {oa.model})")
+    print(f"  coverage {sc['trainer_coverage_score']}%  |  integrity "
+          f"{sc['session_integrity_score']}/100 ({sc['tier']})  |  {an['elapsed_sec']}s")
+    for d in sc["deductions"]:
+        print(f"    {d['points']:>4}  {d['reason']}  ({d.get('evidence')})")
     for f in failures:
-        print(f"  [{f['model']}] FAILED: {f['error'][:200]}")
+        print(f"  [{f['model']}] FAILED (fell back): {f['error'][:200]}")
     print(f"  files            : {', '.join(written + (tinfo.get('files') or []))}")
     print("=" * 70)
     return 0
 
-
-def _label(model: str) -> str:
-    """Model name -> safe file-name part: 'gpt-5.5' -> 'gpt-5.5', 'org/x y' -> 'org-x-y'."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "-", model).strip("-") or "model"
-
-
-def _comparison(results: list[dict]) -> dict:
-    """Side-by-side summary of every model's verdict on the same session."""
-    models = []
-    for r in results:
-        cov = (r.get("transcript") or {}).get("coverage_analysis") or {}
-        desc = r.get("meeting_description") or {}
-        sc = r.get("scoring") or {}
-        models.append({
-            **(r.get("meeting") or {}).get("llm", {}),
-            "trainer_coverage_score": sc.get("trainer_coverage_score"),
-            "session_integrity_score": sc.get("session_integrity_score"),
-            "tier": sc.get("tier"),
-            "deductions": [{"reason": d.get("reason"), "points": d.get("points")}
-                           for d in sc.get("deductions") or []],
-            "sections": {c.get("section"): {"status": c.get("status"),
-                                            "approx_minutes_spent": c.get("approx_minutes_spent")}
-                         for c in cov.get("coverage") or []},
-            "integrity_flags": [{"type": f.get("type"), "confidence": f.get("confidence"),
-                                 "approx_time": f.get("approx_time"), "evidence": f.get("evidence")}
-                                for f in cov.get("integrity_flags") or []],
-            "topics": len(desc.get("topics") or []),
-            "trainer_fluency": desc.get("trainer_fluency"),
-            "trainer_non_english_pct": cov.get("trainer_non_english_pct"),
-        })
-    return {"meeting_id": (results[0].get("meeting") or {}).get("meeting_id"),
-            "analyzed_at": (results[0].get("meeting") or {}).get("analyzed_at"),
-            "models": models}

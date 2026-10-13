@@ -350,8 +350,8 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
         and tl.strip().lower() not in ("", "none", "null", "n/a", "english") else None)
 
     # a model that could not produce a usable coverage list must NOT become a 0%
-    # session score: fail this model (api.run records it under llm_failures and the
-    # next model becomes primary; with no model left the job fails and SQS retries)
+    # session score: fail this model (api.run records it under llm_failures and tries
+    # the next LLM_PROVIDERS entry; with none left the job fails and SQS retries)
     if sections and not oa.mock and not any(_match_section(c.get("section"), sections) for c in cov):
         raise RuntimeError(f"[{oa.model}] coverage analysis unusable after correction: "
                            f"{result.get('_problems') or 'no planned section in the reply'}")

@@ -37,8 +37,8 @@ MERGE_STRATEGY=stitch
 OPENAI_SECRET_NAME=training-analysis/openai
 OPENAI_MODEL=gpt-5.5
 OPENAI_REASONING_EFFORT=high
-# models: techsara,openai = testing (both saved, ours primary) | techsara = live
-LLM_PROVIDERS=techsara,openai
+# model: techsara = techsara-35b only (final). "techsara,openai" = GPT as fallback only.
+LLM_PROVIDERS=techsara
 TECHSARA_SECRET_NAME=training-analysis/techsara
 TECHSARA_MODEL=techsara-35b
 TECHSARA_WHISPER=true

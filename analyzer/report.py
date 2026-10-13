@@ -43,10 +43,6 @@ _assets = {"base": None, "keys": {}, "data": {}, "bytes": 0, "video": None}
 _VIDEO_TIERS = ((960, 30), (854, 32), (640, 34))
 _video_cache: dict = {}
 
-# Bump when the report changes in a way old reports should get (rebuild_reports
-# compares it with the S3 object's "report-version" metadata).
-REPORT_VERSION = "2026-10-13.video-embed"
-
 REASON_INFO = {
     "proxy_interview_coaching": ("Possible proxy-interview coaching",
                                  "The transcript suggests the trainer discussed having someone else sit a real interview on the candidate's behalf. This is surfaced for a human to read in context — it does not change the score."),
@@ -480,17 +476,8 @@ def _transcript_line(result):
     return text
 
 
-def _other_reports(meeting):
-    this = (meeting.get("llm") or {}).get("model")
-    links = [f"<a href='{_e(r.get('report'))}'>{_e(r.get('model'))}</a>"
-             + (" (primary)" if r.get("primary") else "")
-             for r in (meeting.get("reports") or []) if r.get("model") != this]
-    return " · ".join(links)
-
-
 def _session_card(meeting, result):
     src = meeting.get("config_source")
-    other = _other_reports(meeting)
     rows = [
         ("Training day", f"Day {_e(meeting.get('day'))} — {_e(meeting.get('day_title'))}"),
         ("Session label (Salesforce)", _e(meeting.get("day_step_name"))),
@@ -502,7 +489,6 @@ def _session_card(meeting, result):
         ("Session details from", _e(src)),
         ("AI model (this report)", _e(_llm_line(meeting))),
         ("Transcript", _e(_transcript_line(result))),
-        ("Same session, other AI model", other),   # already-escaped links
     ]
     trs = "".join(f"<tr><td>{k}</td><td><b>{v}</b></td></tr>" for k, v in rows if v and v != "None")
     warn = ""
@@ -1271,7 +1257,7 @@ def _evidence_data():
 
 def _embedded_video(rel):
     """base64 of a compact copy of the analysis video, or None (too big / no ffmpeg /
-    file missing). Cached, so the 2-3 reports of one meeting encode it once."""
+    file missing). Cached per video file."""
     full = _asset_path(rel)
     try:
         budget = float(os.environ.get("EMBED_VIDEO_MAX_MB", "").strip() or 20) * 1024 * 1024
