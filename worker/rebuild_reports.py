@@ -3,14 +3,20 @@
 No re-analysis, no model calls: for every meeting folder under the prefix it
 downloads each result*.json plus only the proof files it references, re-renders
 the matching report*.html (evidence images + proof texts embedded, video
-fallback — see analyzer/report.py) and uploads it over the old one. Idempotent:
-safe to run again; a meeting that fails is reported and skipped.
+fallback — see analyzer/report.py) and uploads it over the old one. A meeting
+that fails is reported and skipped.
+
+RESUMABLE: if a run is interrupted (instance stopped, session closed), run it
+again — reports already rebuilt are skipped. "Already rebuilt" = the report was
+saved more than REBUILT_AFTER_SEC after its result json (the worker writes both
+together; this script rewrites only the report, later). --force redoes all.
 
   python -m worker.rebuild_reports --dry-run              # list what would change
   python -m worker.rebuild_reports                        # every meeting under Training/
   python -m worker.rebuild_reports --prefix "Training/Resume-Based/Divya_Prajapati/"
 
-Runs on the EC2 worker (its IAM role can list/get/put Training/*).
+Runs on the EC2 worker (its IAM role can list/get/put Training/*). Run it with
+nohup so a closed SSM session does not kill it (see CLAUDE.md).
 """
 import argparse
 import json
@@ -21,6 +27,8 @@ import sys
 import tempfile
 
 from analyzer import report as R
+
+REBUILT_AFTER_SEC = 600
 
 BUCKET = os.environ.get("S3_BUCKET", "zoom-automation-bucket").strip() or "zoom-automation-bucket"
 REGION = os.environ.get("AWS_REGION", "us-east-1").strip() or "us-east-1"
@@ -34,30 +42,43 @@ def main() -> int:
     ap.add_argument("--prefix", default="Training/", help="only meetings under this key prefix")
     ap.add_argument("--dry-run", action="store_true", help="list the reports, change nothing")
     ap.add_argument("--limit", type=int, default=0, help="stop after N meetings (0 = all)")
+    ap.add_argument("--force", action="store_true", help="also redo reports already rebuilt")
     args = ap.parse_args()
 
     import boto3
     s3 = boto3.client("s3", region_name=REGION)
-    totals = rebuild_all(s3, args.bucket, args.prefix, dry_run=args.dry_run, limit=args.limit)
+    totals = rebuild_all(s3, args.bucket, args.prefix, dry_run=args.dry_run, limit=args.limit,
+                         force=args.force)
     print(f"\nDone: {totals['meetings']} meeting(s), {totals['reports']} report(s) "
-          f"{'would be ' if args.dry_run else ''}rebuilt, {totals['failed']} failed.")
+          f"{'would be ' if args.dry_run else ''}rebuilt, {totals['skipped']} already rebuilt "
+          f"(skipped), {totals['failed']} failed.")
     return 1 if totals["failed"] else 0
 
 
-def rebuild_all(s3, bucket: str, prefix: str, dry_run: bool = False, limit: int = 0) -> dict:
-    keys = set(_list_keys(s3, bucket, prefix))
-    # meeting folder -> [(result json name, report html name)] for reports that exist
+def rebuild_all(s3, bucket: str, prefix: str, dry_run: bool = False, limit: int = 0,
+                force: bool = False) -> dict:
+    listed = dict(_list_keys(s3, bucket, prefix))      # key -> LastModified
+    keys = set(listed)
+    # meeting folder -> [(result json name, report html name)] for reports still to rebuild
     meetings: dict[str, list[tuple[str, str]]] = {}
+    skipped = 0
     for k in keys:
         folder, name = k.rsplit("/", 1) if "/" in k else ("", k)
         m = _RESULT.match(name)
         if not m:
             continue
         report = f"report{m.group(1) or ''}.html"
-        if f"{folder}/{report}" in keys:
-            meetings.setdefault(folder, []).append((name, report))
+        rkey = f"{folder}/{report}"
+        if rkey not in keys:
+            continue
+        if not force and _already_rebuilt(listed[rkey], listed[k]):
+            skipped += 1
+            continue
+        meetings.setdefault(folder, []).append((name, report))
+    if skipped:
+        print(f"{skipped} report(s) already rebuilt by an earlier run - skipped (--force to redo)")
 
-    totals = {"meetings": 0, "reports": 0, "failed": 0}
+    totals = {"meetings": 0, "reports": 0, "failed": 0, "skipped": skipped}
     for folder in sorted(meetings):
         if limit and totals["meetings"] >= limit:
             break
@@ -118,10 +139,19 @@ def _evidence_paths(result: dict) -> set:
     return {p for p in paths if p.lower().endswith(_EVIDENCE_EXT) and not os.path.isabs(p)}
 
 
+def _already_rebuilt(report_modified, result_modified) -> bool:
+    """The report was rewritten well after its result json -> this script did it."""
+    try:
+        return (report_modified - result_modified).total_seconds() > REBUILT_AFTER_SEC
+    except (TypeError, AttributeError):
+        return False
+
+
 def _list_keys(s3, bucket: str, prefix: str):
+    """-> (key, LastModified) for every object under the prefix."""
     for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
         for o in page.get("Contents") or []:
-            yield o["Key"]
+            yield o["Key"], o.get("LastModified")
 
 
 if __name__ == "__main__":

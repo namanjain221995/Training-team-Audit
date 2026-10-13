@@ -430,3 +430,7 @@ the html, so it works opened from S3 (presigned link = html only) or downloaded 
 42 MB analysis video stays a file — if it can't load next to the report, the page shows its
 S3 path + a file picker. Re-render existing reports in S3 with the current report.py (no
 re-analysis, no model calls): `python -m worker.rebuild_reports [--dry-run] [--prefix ...]`.
+Resumable: a report saved >10 min after its result json counts as already rebuilt and is
+skipped, so an interrupted run just continues (`--force` redoes all). On EC2 run it with the
+worker service stopped (its idle timer stops the instance) and under `nohup` (closing the SSM
+session kills foreground processes).
