@@ -3,7 +3,12 @@
 1. load_transcript  -> speaker-tagged, timestamped segments (Zoom VTT, techsara-whisper,
                        or both combined — see combine.py)
 2. compute_metrics  -> duration, per-role talk-time (seconds), non-English flags  [no AI]
-3. analyze_coverage -> GPT-4o: day-plan coverage + integrity read                 [1 AI call]
+3. analyze_coverage -> LLM: day-plan coverage + integrity read                    [1 AI call]
+4. describe_meeting -> LLM: meeting record + per-topic QA                         [1 AI call]
+
+Every provider (gpt / techsara-35b) gets the same prompts, the whole transcript, and the
+same output checks: a reply with invalid JSON, missing sections or too-coarse topics is
+sent back to the model with the exact problems to fix (see _ask / chat_json).
 """
 import os
 import re
@@ -269,7 +274,6 @@ COVERAGE_SYSTEM = (
 def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label: str | None = None,
                      topics: list | None = None) -> dict:
     sections = sections_cfg.get("sections", [])
-    transcript_text = _render_transcript(segments)
 
     label_line = (f"SALESFORCE SESSION LABEL: {session_label}\n"
                   "(If the planned sections below clearly do not match this label's topic, "
@@ -282,7 +286,8 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
         kp_txt = ("\n    key points to cover: " + "; ".join(str(k) for k in kp)) if kp else ""
         return f"- {s['name']} (allotted ~{s.get('expected_minutes','?')} min): {s['detail']}{kp_txt}"
     section_list = "\n".join(_fmt_section(s) for s in sections)
-    user = (
+    names = "; ".join(s["name"] for s in sections)
+    build_user = lambda transcript_text: (
         f"DAY TITLE: {sections_cfg.get('title','')}  "
         f"(planned total ~{sections_cfg.get('total_minutes','?')} min)\n\n"
         f"{label_line}{topics_block}"
@@ -302,6 +307,8 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
         "sentence: a sentence spoken mainly in another language counts as non-English EVEN IF "
         "it contains English technical terms (API, database, function, etc.). Use 0 if the "
         "trainer spoke entirely in English, and name the main non-English language.\n"
+        f"The coverage list must contain EXACTLY one entry for EACH of the {len(sections)} planned "
+        f"sections, using these exact names: {names}.\n"
         "Respond with JSON of exactly this shape:\n"
         "{\n"
         '  "coverage": [\n'
@@ -319,12 +326,14 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
         '  "trainer_non_english_language": "<language name, or null if all English>"\n'
         "}"
     )
-    result = oa.chat_json(COVERAGE_SYSTEM, user)
+    result, sent = _ask(oa, COVERAGE_SYSTEM, build_user, segments,
+                        validate=lambda r: _coverage_problems(r, sections))
 
     # GPT output is untrusted: JSON mode guarantees valid JSON, not the requested
     # shape. Null lists and non-dict rows are real-world model behaviour.
     if not isinstance(result, dict):
         result = {"_invalid_response": True, "raw": str(result)[:2000]}
+    result["transcript_sent"] = sent
     cov = result.get("coverage") or []
     if not isinstance(cov, list):
         cov = []
@@ -340,17 +349,18 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
     result["trainer_non_english_language"] = (tl.strip() if isinstance(tl, str)
         and tl.strip().lower() not in ("", "none", "null", "n/a", "english") else None)
 
+    # a model that could not produce a usable coverage list must NOT become a 0%
+    # session score: fail this model (api.run records it under llm_failures and tries
+    # the next LLM_PROVIDERS entry; with none left the job fails and SQS retries)
+    if sections and not oa.mock and not any(_match_section(c.get("section"), sections) for c in cov):
+        raise RuntimeError(f"[{oa.model}] coverage analysis unusable after correction: "
+                           f"{result.get('_problems') or 'no planned section in the reply'}")
+
     # Attach each section's allotted minutes. GPT may echo names loosely
     # ('GitHub Why Ladder' vs 'GitHub "Why Ladder"'), so match fuzzily and
     # canonicalise to the plan's name so downstream exact joins keep working.
-    def _match_section(name):
-        if not name or not sections:
-            return None
-        best = max(sections, key=lambda s: _sim(s["name"], str(name)))
-        return best if _sim(best["name"], str(name)) >= 0.6 else None
-
     for c in cov:
-        planned = _match_section(c.get("section"))
+        planned = _match_section(c.get("section"), sections)
         if planned:
             c["section"] = planned["name"]
             c["expected_minutes"] = planned.get("expected_minutes")
@@ -368,7 +378,7 @@ def analyze_coverage(segments: list[dict], sections_cfg: dict, oa, session_label
             mins = tpc.get("approx_minutes")
             if not ps or not isinstance(mins, (int, float)):
                 continue
-            m = _match_section(ps)
+            m = _match_section(ps, sections)
             if m:
                 attributed[m["name"]] = attributed.get(m["name"], 0.0) + float(mins)
         for c in cov:
@@ -416,14 +426,15 @@ DESCRIBE_SYSTEM = (
 def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
                      sections_cfg: dict | None = None) -> dict:
     """One GPT call -> full meeting record + per-topic QA breakdown."""
-    transcript_text = _render_transcript(segments)
     sections = (sections_cfg or {}).get("sections", [])
+    duration_min = max((s["end"] for s in segments), default=0) / 60.0
+    min_topics = _min_topics(duration_min)
     plan_block = ""
     if sections:
         plan_lines = "\n".join(f"- {s['name']}: {s['detail']}" for s in sections)
         plan_block = (f"PLANNED CURRICULUM FOR THIS DAY "
                       f"({(sections_cfg or {}).get('title', '')}):\n{plan_lines}\n\n")
-    user = (
+    build_user = lambda transcript_text: (
         (f"SESSION LABEL: {session_label}\n\n" if session_label else "")
         + plan_block
         + f"TRANSCRIPT:\n{transcript_text}\n\n"
@@ -494,6 +505,12 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         "topics: EVERY distinct topic in the meeting, in order, covering the whole session "
         "(estimate times from the transcript timestamps). Mark on_curriculum=false for "
         "anything not in the planned curriculum (small talk, admin, or unrelated coaching). "
+        "A topic is ONE subject of discussion, NOT a whole planned section: start a new topic "
+        "whenever the subject changes (a new concept, a new interview question, a new exercise, "
+        "a new project being discussed). Topics usually last 3-8 minutes; one planned section "
+        "normally spans several topics. Split anything longer than ~15 minutes into its "
+        f"sub-topics. This session is ~{round(duration_min)} min long, so list at least "
+        f"{min_topics} topics, and the last topic must end near {_sec_to_ts(duration_min * 60)}. "
         "The timeline must cover the whole meeting in order with 6-15 entries. "
         "trainer_effectiveness: judge the trainer's REAL impact this session from the transcript — "
         "how clearly they explained, their use of examples, HOW EFFECTIVELY topics were actually taught "
@@ -508,11 +525,13 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         "improvements and 2-4 evidence moments. Do NOT comment on the candidate's appearance, dress or looks. "
         "notable_quotes: up to 5 quotes that best characterise the session."
     )
-    result = oa.chat_json(DESCRIBE_SYSTEM, user)
+    result, sent = _ask(oa, DESCRIBE_SYSTEM, build_user, segments,
+                        validate=lambda r: _description_problems(r, duration_min, min_topics))
 
     # untrusted model output: normalise the shape (same policy as analyze_coverage)
     if not isinstance(result, dict):
         result = {"_invalid_response": True, "raw": str(result)[:2000]}
+    result["transcript_sent"] = sent
     for key in ("timeline", "topics", "notable_quotes"):
         v = result.get(key)
         result[key] = [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
@@ -588,17 +607,134 @@ def _topics_block(topics: list | None) -> str:
             + "\n".join(lines) + "\n\n")
 
 
-def _render_transcript(segments: list[dict], max_chars: int = 60000) -> str:
-    lines = []
+# ── shared model-call plumbing (every provider gets the same treatment) ────────
+# Characters of transcript sent per call. A 2-hour session is ~100-130k characters;
+# the default sends it WHOLE. If a model's context window is smaller, the server's
+# "too long" error halves the budget and the call is retried (see _ask).
+TRANSCRIPT_MIN_CHARS = 30000
+_STATUSES = {"covered", "partial", "not_covered"}
+
+
+def _ask(oa, system: str, build_user, segments: list[dict], validate) -> tuple[dict, dict]:
+    """chat_json with the whole transcript, shrinking it only if the model's context
+    window demands. -> (result, {"chars", "trimmed", "lines_kept_pct"})."""
+    from .config import _int
+    from .openai_client import is_context_length_error
+    budget = max(TRANSCRIPT_MIN_CHARS, _int("LLM_TRANSCRIPT_MAX_CHARS", 400000))
+    while True:
+        text, sent = _render_transcript(segments, budget)
+        try:
+            return oa.chat_json(system, build_user(text), validate=validate), sent
+        except Exception as exc:
+            if not is_context_length_error(exc) or budget <= TRANSCRIPT_MIN_CHARS:
+                raise
+            budget = max(TRANSCRIPT_MIN_CHARS, budget // 2)
+            print(f"      [{oa.model}] transcript too long for its context window; "
+                  f"retrying with {budget} characters")
+
+
+def _match_section(name, sections: list[dict]):
+    """Planned section a model's (loosely echoed) section name refers to, or None."""
+    if not name or not sections:
+        return None
+    best = max(sections, key=lambda s: _sim(s["name"], str(name)))
+    return best if _sim(best["name"], str(name)) >= 0.6 else None
+
+
+def _coverage_problems(r: dict, sections: list[dict]) -> list[str]:
+    cov = r.get("coverage")
+    if not isinstance(cov, list) or not cov:
+        return ["'coverage' must be a list with one entry per planned section"]
+    problems, seen = [], set()
+    for c in cov:
+        if not isinstance(c, dict):
+            problems.append("every 'coverage' entry must be an object"); continue
+        m = _match_section(c.get("section"), sections)
+        if m:
+            seen.add(m["name"])
+        else:
+            problems.append(f"'{c.get('section')}' is not one of the planned section names")
+        if c.get("status") not in _STATUSES:
+            problems.append(f"section '{c.get('section')}': status must be covered|partial|not_covered")
+        if not isinstance(c.get("approx_minutes_spent"), (int, float)):
+            problems.append(f"section '{c.get('section')}': approx_minutes_spent must be a number")
+    missing = [s["name"] for s in sections if s["name"] not in seen]
+    if missing:
+        problems.append("missing planned sections (add an entry for each): " + "; ".join(missing))
+    if not isinstance(r.get("integrity_flags"), list):
+        problems.append("'integrity_flags' must be a list (empty if none)")
+    tp = r.get("trainer_non_english_pct")
+    if not isinstance(tp, (int, float)) or not 0 <= tp <= 100:
+        problems.append("'trainer_non_english_pct' must be a number 0-100")
+    return problems
+
+
+def _min_topics(duration_min: float) -> int:
+    """Fewest topics a real session of this length can have (~1 per 10 min)."""
+    return max(3, round(duration_min / 10))
+
+
+def _description_problems(r: dict, duration_min: float, min_topics: int) -> list[str]:
+    problems = []
+    if not (isinstance(r.get("overview"), str) and r["overview"].strip()):
+        problems.append("'overview' must be ONE non-empty string")
+    tl = r.get("timeline")
+    if not isinstance(tl, list) or len(tl) < 6:
+        problems.append("'timeline' must have 6-15 entries covering the whole meeting")
+    topics = [t for t in (r.get("topics") or []) if isinstance(t, dict)] \
+        if isinstance(r.get("topics"), list) else []
+    if len(topics) < min_topics:
+        problems.append(f"only {len(topics)} topics for a ~{round(duration_min)}-min session: split "
+                        f"them into the individual subjects discussed (at least {min_topics})")
+    elif duration_min >= 20:
+        try:
+            last_end = _ts_to_sec(str(topics[-1].get("end"))) / 60.0
+        except (ValueError, TypeError):
+            last_end = None
+        if last_end is not None and last_end < duration_min - 10:
+            problems.append(f"topics stop at {topics[-1].get('end')} but the session runs to "
+                            f"{_sec_to_ts(duration_min * 60)}: cover the whole session")
+    for key in ("trainer_summary", "candidate_summary"):
+        if not (isinstance(r.get(key), str) and r[key].strip()):
+            problems.append(f"'{key}' must be a non-empty string")
+    fl = r.get("trainer_fluency")
+    if not isinstance(fl, (int, float)) or not 1 <= fl <= 10:
+        problems.append("'trainer_fluency' must be an integer 1-10")
+    return problems
+
+
+def _render_transcript(segments: list[dict], max_chars: int = 400000) -> tuple[str, dict]:
+    """Transcript as '[mm:ss] Speaker: text' lines. Consecutive lines from the same
+    speaker are joined (up to ~60 s) to save tokens without losing timing. If it is
+    still over max_chars, lines are dropped EVENLY across the whole session (never a
+    hole in the middle), so every part of the meeting stays visible to the model."""
+    lines, cur = [], None
     for s in segments:
         who = s["speaker"] or "Speaker"
-        lines.append(f"[{_sec_to_ts(s['start'])}] {who}: {s['text']}")
-    text = "\n".join(lines)
-    if len(text) > max_chars:  # keep head + tail if enormous
-        head = text[: max_chars // 2]
-        tail = text[-max_chars // 2:]
-        text = head + "\n...[transcript trimmed]...\n" + tail
-    return text
+        if cur and cur["who"] == who and s["start"] - cur["start"] < 60 and s["start"] - cur["end"] < 5:
+            cur["text"] += " " + s["text"]
+            cur["end"] = s["end"]
+            continue
+        cur = {"who": who, "start": s["start"], "end": s["end"], "text": s["text"]}
+        lines.append(cur)
+    lines = [f"[{_sec_to_ts(l['start'])}] {l['who']}: {l['text']}" for l in lines]
+    total = sum(len(l) + 1 for l in lines)
+    if total <= max_chars:
+        return "\n".join(lines), {"chars": total, "trimmed": False, "lines_kept_pct": 100}
+    keep_ratio, credit, kept, out, skipped = max_chars / total, 1.0, 0, [], False  # keep line 1
+    for l in lines:
+        credit += keep_ratio
+        if credit >= 1:
+            credit -= 1
+            if skipped:
+                out.append("[...]")
+            out.append(l)
+            kept, skipped = kept + 1, False
+        else:
+            skipped = True
+    text = "\n".join(out)
+    return text, {"chars": len(text), "trimmed": True,
+                  "lines_kept_pct": round(100 * kept / max(1, len(lines)))}
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────

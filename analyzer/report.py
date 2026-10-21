@@ -9,19 +9,39 @@ Design rules:
   - Every timestamp is CLICK-TO-SEEK: clicking it jumps the embedded analysis
     video to that moment (seekTo() maps session seconds -> video time).
   - Every red flag shows its evidence inline: the quote, the timestamp, and the
-    proof images copied by proof.py (paths are relative to output/, where
-    report.html lives, so <img src="proof/..."> just works when double-clicked).
+    proof images copied by proof.py. The images and proof.txt texts are EMBEDDED
+    in the html (each unique frame once, downscaled when OpenCV is available), so
+    the report is self-contained: it works opened from S3 (a presigned link covers
+    the html only), downloaded on its own, or emailed.
+  - The analysis video is too big to embed: the player loads analysis-video.mp4
+    from next to the report, and if that fails it shows where the file lives in S3
+    plus a picker to load the downloaded copy (timestamps then seek into it).
   - A "Download report (PDF)" button prints the page to PDF.
   - All model/transcript text is escaped — GPT output is untrusted.
 """
+import base64
+import hashlib
 import html
 import json
+import mimetypes
 import os
 import re
 from datetime import datetime
 from difflib import SequenceMatcher
 
 _IMG_EXT = (".jpg", ".jpeg", ".png", ".webp")
+
+# Embedded evidence (see module doc). Set per render(); paths in result.json are
+# relative to the report's folder.
+_EMBED_MAX_BYTES = 25 * 1024 * 1024   # past this, images fall back to relative links
+_EMBED_IMG_MAX_W = 960
+_EMBED_TXT_MAX = 20000
+_assets = {"base": None, "keys": {}, "data": {}, "bytes": 0, "video": None}
+# The analysis video is re-encoded smaller (same timing) and embedded when it fits
+# EMBED_VIDEO_MAX_MB (blank = 20, 0 = never): the report then plays it wherever it is
+# opened. Tried in order until one fits: (max width, x264 crf).
+_VIDEO_TIERS = ((960, 30), (854, 32), (640, 34))
+_video_cache: dict = {}
 
 REASON_INFO = {
     "proxy_interview_coaching": ("Possible proxy-interview coaching",
@@ -144,6 +164,14 @@ a{color:var(--accent)}
 .thumbs a{display:block}
 .thumbs img{height:118px;border-radius:10px;border:1px solid var(--line);display:block}
 .thumbs .cap{font-size:11.5px;color:var(--muted);text-align:center;margin-top:3px}
+.lb{display:none;position:fixed;inset:0;background:rgba(15,23,42,.88);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}
+.lb img{max-width:95vw;max-height:92vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+details.proof{margin-top:7px;font-size:12.5px}
+details.proof summary{cursor:pointer;color:var(--muted)}
+details.proof pre{white-space:pre-wrap;word-break:break-word;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0 0;max-height:320px;overflow:auto;font-size:12px}
+.vmiss{display:none;margin-top:10px;padding:12px 14px;border:1px solid #fcd34d;background:#fffbeb;border-radius:10px;font-size:13.5px;color:#78350f}
+.vmiss code{background:#fef3c7;padding:1px 5px;border-radius:5px;word-break:break-all}
+.vmiss label{display:inline-block;margin-top:9px;cursor:pointer}
 .chip{display:inline-block;font-size:13px;font-weight:700;padding:2px 9px;border-radius:999px}
 .chip.ok{color:#166534;background:var(--ok-bg)}
 .chip.warn{color:#92400e;background:var(--warn-bg)}
@@ -247,12 +275,23 @@ ul.flags-list li{margin:4px 0}
 
 # ── public API ───────────────────────────────────────────────────────────────
 def write(result: dict, out_path: str) -> str:
+    html_text = render(result, base_dir=os.path.dirname(os.path.abspath(out_path)))
     with open(out_path, "w", encoding="utf-8") as fh:
-        fh.write(render(result))
+        fh.write(html_text)
     return out_path
 
 
-def render(result: dict) -> str:
+def render(result: dict, base_dir: str | None = None) -> str:
+    """base_dir = folder the proof/ paths are relative to (enables embedding)."""
+    global _assets
+    _assets = {"base": base_dir, "keys": {}, "data": {}, "bytes": 0, "video": None}
+    try:
+        return _render(result)
+    finally:
+        _assets = {"base": None, "keys": {}, "data": {}, "bytes": 0, "video": None}
+
+
+def _render(result: dict) -> str:
     meeting = result.get("meeting") or {}
     scoring = result.get("scoring") or {}
     tier = scoring.get("tier") or "Review"
@@ -289,9 +328,10 @@ def render(result: dict) -> str:
         f"<footer>Generated from result.json · analyzed {_e(meeting.get('analyzed_at', ''))[:19].replace('T', ' ')} UTC"
         f" · full evidence in the <b>proof/</b> folder</footer>",
         "</div>",
-        _script(session_dur),
-        "</body></html>",
+        "<div id='lightbox' class='lb noprint' onclick='closeEv()'><img id='lbImg' alt='evidence frame'></div>",
     ]
+    # after every section has registered its images
+    parts += [_evidence_data(), _script(session_dur), "</body></html>"]
     return "\n".join(parts)
 
 
@@ -316,15 +356,49 @@ def _script(session_dur):
         f"var SESSION_DUR = {session_dur};\n"
         "var _factor = null;\n"
         "function _vid(){ return document.getElementById('analysisVideo'); }\n"
+        # only a real MediaError: networkState is briefly NO_SOURCE while a good src starts loading
+        "function _vidBroken(v){ return !!v.error; }\n"
+        "function _vidFail(){ var m=document.getElementById('videoMissing'); if(m){ m.style.display='block'; } }\n"
         "function seekTo(sec){\n"
         "  var v=_vid();\n"
         "  if(!v){ return; }\n"
+        "  if(_vidBroken(v)){ _vidFail(); var m=document.getElementById('videoMissing');\n"
+        "    if(m){ m.scrollIntoView({behavior:'smooth', block:'center'}); } return; }\n"
         "  if(_factor===null && v.duration && SESSION_DUR){ _factor = v.duration / SESSION_DUR; }\n"
         "  var f = _factor || 0.25;\n"
         "  try { v.currentTime = Math.max(0, sec * f); } catch(e) {}\n"
         "  v.scrollIntoView({behavior:'smooth', block:'center'});\n"
         "  if(v.play){ var p=v.play(); if(p&&p.catch){ p.catch(function(){}); } }\n"
         "}\n"
+        # the video could not be fetched next to the report -> play the copy the viewer picks
+        "function loadVideoFile(inp){\n"
+        "  var f=inp.files&&inp.files[0], v=_vid(); if(!f||!v){ return; }\n"
+        "  v.src=URL.createObjectURL(f); _factor=null; v.load();\n"
+        "  var m=document.getElementById('videoMissing'); if(m){ m.style.display='none'; }\n"
+        "}\n"
+        "(function(){ var v=_vid(); if(!v){ return; }\n"
+        "  v.addEventListener('error', _vidFail, true);\n"
+        "  var s=v.querySelector('source'); if(s){ s.addEventListener('error', _vidFail); }\n"
+        # embedded copy (works wherever the report is opened): base64 -> Blob -> object URL
+        "  var el=document.getElementById('vidData');\n"
+        "  if(el){\n"
+        "    var b64=el.textContent.trim(), use=function(blob){ v.src=URL.createObjectURL(blob); v.load(); };\n"
+        "    fetch('data:video/mp4;base64,'+b64).then(function(r){ return r.blob(); }).then(use)\n"
+        "      .catch(function(){ try { var bin=atob(b64), u=new Uint8Array(bin.length);\n"
+        "        for(var i=0;i<bin.length;i++){ u[i]=bin.charCodeAt(i); }\n"
+        "        use(new Blob([u], {type:'video/mp4'})); } catch(e) { _vidFail(); } });\n"
+        "    return;\n"
+        "  }\n"
+        "  if(_vidBroken(v)){ _vidFail(); } })();\n"
+        # embedded evidence frames: each unique image is stored once, then shared
+        "var EV={}; try { EV=JSON.parse(document.getElementById('evData').textContent); } catch(e) {}\n"
+        "Array.prototype.forEach.call(document.querySelectorAll('img[data-ev]'), function(i){\n"
+        "  var d=EV[i.getAttribute('data-ev')]; if(d){ i.src=d; } });\n"
+        "function openEv(k){ var d=EV[k]; if(!d){ return false; }\n"
+        "  document.getElementById('lbImg').src=d; document.getElementById('lightbox').style.display='flex';\n"
+        "  return false; }\n"
+        "function closeEv(){ document.getElementById('lightbox').style.display='none'; }\n"
+        "document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeEv(); } });\n"
         "function downloadReport(){ window.print(); }\n"
         "function toggleMore(id, el){\n"
         "  var e=document.getElementById(id); if(!e){ return; }\n"
@@ -424,17 +498,8 @@ def _transcript_line(result):
     return text
 
 
-def _other_reports(meeting):
-    this = (meeting.get("llm") or {}).get("model")
-    links = [f"<a href='{_e(r.get('report'))}'>{_e(r.get('model'))}</a>"
-             + (" (primary)" if r.get("primary") else "")
-             for r in (meeting.get("reports") or []) if r.get("model") != this]
-    return " · ".join(links)
-
-
 def _session_card(meeting, result):
     src = meeting.get("config_source")
-    other = _other_reports(meeting)
     rows = [
         ("Training day", f"Day {_e(meeting.get('day'))} — {_e(meeting.get('day_title'))}"),
         ("Session label (Salesforce)", _e(meeting.get("day_step_name"))),
@@ -446,7 +511,6 @@ def _session_card(meeting, result):
         ("Session details from", _e(src)),
         ("AI model (this report)", _e(_llm_line(meeting))),
         ("Transcript", _e(_transcript_line(result))),
-        ("Same session, other AI model", other),   # already-escaped links
     ]
     trs = "".join(f"<tr><td>{k}</td><td><b>{v}</b></td></tr>" for k, v in rows if v and v != "None")
     warn = ""
@@ -684,10 +748,7 @@ def _coverage_card(result):
         trs += (f"<tr><td><b>{_e(c.get('section'))}</b></td>"
                 f"<td><span class='chip {s_cls}'>{_e(label)}</span></td>"
                 f"<td>{bar}</td><td style='font-size:13px;color:#475569'>{ev}</td></tr>")
-    link = ""
-    if cov.get("proof"):
-        link = (f"<div class='legend' style='margin-top:8px'>Full table: "
-                f"<a href='{_e(cov['proof'])}'>{_e(cov['proof'])}</a></div>")
+    link = _proof_text(cov["proof"], "📄 Full table") if cov.get("proof") else ""
     return ("<section id='coverage' class='card'><h2>📋 Curriculum coverage — what the trainer taught</h2>"
             "<div class='lead'>Every topic from the Day plan, whether the recording shows it being taught, "
             "how deeply it was covered versus the time the plan allots, and a one-line note on what was "
@@ -1036,10 +1097,15 @@ def _video_card(result):
     player = ""
     vid = video.get("analysis_video")
     if vid:
+        _assets["video"] = _embedded_video(vid)
+        # embedded copy -> no src here (the page script plays the embedded bytes);
+        # otherwise load the file next to the report, with the picker as fallback
+        src = "" if _assets["video"] else f" src='{_e(vid)}'"
         player = (
             f"<div class='subh'>Watch what the models saw</div>"
             f"<video id='analysisVideo' controls preload='metadata' style='width:100%;border-radius:12px;"
-            f"background:#000' src='{_e(vid)}'></video>"
+            f"background:#000'{src}></video>"
+            + _video_missing_box(result, vid) +
             f"<div class='legend' style='margin-top:5px'>"
             f"<span class='dot' style='background:#ffa03c'></span>orange = trainer &nbsp;"
             f"<span class='dot' style='background:#3cd8e6'></span>cyan = candidate &nbsp;"
@@ -1222,20 +1288,176 @@ def _thumbs(paths):
     imgs = [p for p in paths if isinstance(p, str) and p.lower().endswith(_IMG_EXT)]
     if not imgs:
         return ""
-    cells = "".join(
-        f"<a href='{_e(p)}' title='open full size'><img src='{_e(p)}' alt='evidence frame'>"
-        f"<div class='cap'>{_e(os.path.basename(p))}</div></a>"
-        for p in imgs)
-    return f"<div class='thumbs'>{cells}</div>"
+    cells = []
+    for p in imgs:
+        name = _e(os.path.basename(p))
+        key = _embed_image(p)
+        if key:   # embedded: works wherever the report is opened
+            cells.append(f"<a href='#' onclick='return openEv(\"{key}\")' title='open full size'>"
+                         f"<img data-ev='{key}' alt='evidence frame {name}'><div class='cap'>{name}</div></a>")
+        else:     # file missing locally / over the size budget: relative link as before
+            cells.append(f"<a href='{_e(p)}' title='open full size'><img src='{_e(p)}' alt='evidence frame'>"
+                         f"<div class='cap'>{name}</div></a>")
+    return f"<div class='thumbs'>{''.join(cells)}</div>"
 
 
 def _proof_links(paths):
-    """Link to the plain-text proof file(s) saved by proof.py for this flag."""
+    """The plain-text proof file(s) saved by proof.py for this flag, shown inline."""
     txts = [p for p in paths if isinstance(p, str) and p.lower().endswith(".txt")]
-    if not txts:
-        return ""
-    links = " · ".join(f"<a href='{_e(p)}'>{_e(os.path.basename(p))}</a>" for p in txts)
-    return f"<div class='legend' style='margin-top:7px'>📄 Full proof: {links}</div>"
+    return "".join(_proof_text(p, "📄 Full proof") for p in txts)
+
+
+def _proof_text(path, label):
+    """A proof .txt embedded as an expandable block; a plain link if unreadable."""
+    text = _read_asset_text(path)
+    if text is None:
+        return (f"<div class='legend' style='margin-top:7px'>{label}: "
+                f"<a href='{_e(path)}'>{_e(os.path.basename(path))}</a></div>")
+    return (f"<details class='proof'><summary>{label} — {_e(os.path.basename(path))} "
+            f"(click to expand)</summary><pre>{_e(text)}</pre></details>")
+
+
+def _video_missing_box(result, vid):
+    """Shown by the page script only when the video cannot be loaded next to the report."""
+    m = result.get("meeting") or {}
+    where = (f"s3://{m['s3_bucket']}/{(m.get('s3_prefix') or '').rstrip('/')}/{vid}"
+             if m.get("s3_bucket") and m.get("s3_prefix") else f"the same folder as this report ({vid})")
+    return ("<div id='videoMissing' class='vmiss noprint'>"
+            "<b>⚠ The video could not be loaded next to this report.</b> This is normal when the "
+            "report is opened straight from S3 or downloaded on its own. Download the video from "
+            f"<code>{_e(where)}</code> and choose it below — every timestamp in this report then "
+            "jumps into it.<br><label class='btn'>🎬 Choose the analysis video "
+            "<input type='file' accept='video/mp4,video/*' onchange='loadVideoFile(this)' "
+            "style='display:none'></label></div>")
+
+
+# ── embedded evidence ────────────────────────────────────────────────────────
+def _asset_path(rel):
+    """Absolute path of a result.json-relative asset, only if inside the report folder."""
+    base = _assets.get("base")
+    if not base or not isinstance(rel, str) or os.path.isabs(rel):
+        return None
+    full = os.path.normpath(os.path.join(base, rel))
+    if not full.startswith(os.path.normpath(base) + os.sep) or not os.path.isfile(full):
+        return None
+    return full
+
+
+def _read_asset_text(rel):
+    full = _asset_path(rel)
+    if not full:
+        return None
+    try:
+        with open(full, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(_EMBED_TXT_MAX + 1)
+    except OSError:
+        return None
+    return text if len(text) <= _EMBED_TXT_MAX else text[:_EMBED_TXT_MAX] + "\n… (truncated)"
+
+
+def _embed_image(rel):
+    """Register an evidence image for embedding -> its key, or None (use a link).
+    Identical frames copied into several proof folders are stored once."""
+    if rel in _assets["keys"]:
+        return _assets["keys"][rel]
+    full = _asset_path(rel)
+    if not full:
+        return None
+    try:
+        data, mime = _image_bytes(full)
+    except OSError:
+        return None
+    key = "e" + hashlib.sha1(data).hexdigest()[:12]
+    if key not in _assets["data"]:
+        if _assets["bytes"] + len(data) > _EMBED_MAX_BYTES:
+            return None
+        _assets["data"][key] = f"data:{mime};base64," + base64.b64encode(data).decode()
+        _assets["bytes"] += len(data)
+    _assets["keys"][rel] = key
+    return key
+
+
+def _image_bytes(full):
+    """Downscaled JPEG when OpenCV is available (it is in the container), else the raw file."""
+    try:
+        import cv2
+        img = cv2.imread(full)
+        if img is not None:
+            h, w = img.shape[:2]
+            if w > _EMBED_IMG_MAX_W:
+                img = cv2.resize(img, (_EMBED_IMG_MAX_W, round(h * _EMBED_IMG_MAX_W / w)),
+                                 interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            if ok:
+                return buf.tobytes(), "image/jpeg"
+    except Exception:
+        pass
+    with open(full, "rb") as fh:
+        return fh.read(), mimetypes.guess_type(full)[0] or "image/jpeg"
+
+
+def _evidence_data():
+    # base64 + JSON never contains "</", so it is safe inside a script element
+    vid = (f"<script type='application/octet-stream' id='vidData'>{_assets['video']}</script>"
+           if _assets.get("video") else "")
+    return (f"<script type='application/json' id='evData'>"
+            f"{json.dumps(_assets['data'])}</script>{vid}")
+
+
+def _embedded_video(rel):
+    """base64 of a compact copy of the analysis video, or None (too big / no ffmpeg /
+    file missing). Cached per video file."""
+    full = _asset_path(rel)
+    try:
+        budget = float(os.environ.get("EMBED_VIDEO_MAX_MB", "").strip() or 20) * 1024 * 1024
+    except ValueError:
+        budget = 20 * 1024 * 1024
+    if not full or budget <= 0:
+        return None
+    st = os.stat(full)
+    ck = (full, st.st_size, st.st_mtime, budget)
+    if ck not in _video_cache:
+        data = None
+        if st.st_size <= budget:
+            with open(full, "rb") as fh:
+                data = fh.read()
+        else:
+            for width, crf in _VIDEO_TIERS:
+                data = _compact_video(full, width, crf)
+                if data is None or len(data) <= budget:
+                    break
+            if data is not None and len(data) > budget:
+                print(f"      analysis video still {len(data) / 2**20:.1f} MB after compression; "
+                      f"not embedded (EMBED_VIDEO_MAX_MB={budget / 2**20:g})")
+                data = None
+        _video_cache.clear()          # keep only the current meeting's video in memory
+        _video_cache[ck] = base64.b64encode(data).decode() if data else None
+    return _video_cache[ck]
+
+
+def _compact_video(full, width, crf):
+    """Re-encode with ffmpeg: same frame rate/duration (so timestamps still seek
+    correctly), at most `width` px wide, no audio. None if ffmpeg is unavailable."""
+    import subprocess
+    import tempfile
+    fd, out = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", full,
+             "-vf", f"scale='min({width},iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", str(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", out],
+            check=True, capture_output=True, timeout=1800)
+        with open(out, "rb") as fh:
+            return fh.read()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"      could not compress the analysis video for embedding ({exc!r:.200})")
+        return None
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
 
 
 def _find_flag(result, ftype):

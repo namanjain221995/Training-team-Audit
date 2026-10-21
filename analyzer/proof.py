@@ -20,8 +20,7 @@ import shutil
 
 
 def build(result: dict, cfg, frames: list[dict], name: str = "proof") -> None:
-    """name = folder under the output dir: "proof" for the primary result,
-    "proof-<model>" for each additional model's result."""
+    """name = folder under the output dir (always "proof")."""
     root = os.path.join(os.path.dirname(cfg.proof_dir), name)
     shutil.rmtree(root, ignore_errors=True)   # idempotent re-runs
     os.makedirs(root, exist_ok=True)

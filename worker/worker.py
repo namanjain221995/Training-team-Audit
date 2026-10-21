@@ -9,8 +9,7 @@ transcript webhook lands and training-temp.json is written):
      TRAINER_PHOTOS_DIR).
   2. Run the full analyzer (analyzer.api) in a per-job temp dir.
   3. Upload result.json, report.html, analysis-video.mp4 and the whole proof/
-     folder BACK TO THE SAME MEETING PREFIX — plus, when enabled, every model's
-     result-<model>.json / report-<model>.html / model-comparison.json and the
+     folder BACK TO THE SAME MEETING PREFIX — plus, when enabled, the
      transcripts (transcript-whisper.json, transcript-combined.vtt/.json). Nothing is kept on the instance —
      the temp dir is deleted after every job (only the model cache persists).
   4. Re-merge the session file: gather every sibling chunk's result.json for
@@ -461,7 +460,7 @@ def _resolve_openai_key() -> None:
     if os.environ.get("MOCK_OPENAI", "").strip().lower() in ("1", "true", "yes", "on"):
         return
     providers = {p.strip().lower() for p in
-                 (os.environ.get("LLM_PROVIDERS", "") or "openai").split(",") if p.strip()}
+                 (os.environ.get("LLM_PROVIDERS", "") or "techsara").split(",") if p.strip()}
     whisper = os.environ.get("TECHSARA_WHISPER", "").strip().lower() in ("1", "true", "yes", "on")
     if "openai" in providers:
         _secret_to_env("OPENAI_API_KEY", OPENAI_SECRET_NAME)

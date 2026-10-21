@@ -52,12 +52,9 @@ sudo systemctl start training-worker
 `LLM_PROVIDERS` · `TECHSARA_API_KEY` · `TECHSARA_MODEL` · `TECHSARA_REASONING_EFFORT` ·
 `TECHSARA_WHISPER` · `WHISPER_CHUNK_SEC` · `WHISPER_PARALLEL`
 
-**Which AI model runs** (`LLM_PROVIDERS`, first = primary → `result.json` / Salesforce):
-
-| Phase | Setting | Saved per meeting |
-|---|---|---|
-| Testing now | `LLM_PROVIDERS=techsara,openai` | both: `report.html` (ours) + `report-techsara-35b.html` + `report-gpt-5.5.html` + `model-comparison.json` |
-| Live | `LLM_PROVIDERS=techsara` | ours only: `report.html` / `result.json` |
+**Which AI model runs:** `LLM_PROVIDERS=techsara` (techsara-35b — the final choice).
+Every meeting gets ONE `result.json` + `report.html` + `proof/`. A comma list
+(e.g. `techsara,openai`) is a fallback order: the next model runs only if the first fails.
 
 With `TECHSARA_WHISPER=true` every meeting also gets `transcript-whisper.json` and
 `transcript-combined.vtt` / `.json` (Whisper text + Zoom speaker names).

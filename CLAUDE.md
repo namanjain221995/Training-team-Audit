@@ -121,16 +121,23 @@ training-analysis/
    with `OPENAI_REASONING_EFFORT=high`); `openai_client.py` auto-drops
    temperature/seed for reasoning models that reject them.
 
-**Models + combined transcript (2026-10-08)** — `LLM_PROVIDERS` (comma list, first =
-PRIMARY) picks which LLMs analyze the transcript: `openai` (default), `techsara`
-(self-hosted `techsara-35b` at ai.techsarasolutions.com, Qwen-based, OpenAI-compatible
-chat API but it REJECTS unknown fields — `response_format`, `seed`, `reasoning_effort` —
-which the client drops + remembers). Transcript + video run ONCE; each model writes its
-own analysis in parallel. Primary -> `result.json`/`report.html`/`proof/` (merge +
-Salesforce); with 2+ models each also gets `result-<model>.json`, `report-<model>.html`,
-`proof-<model>/`, plus `model-comparison.json`. Plan: testing `techsara,openai`, live
-`techsara`. techsara-35b quirk: writes multi-paragraph values as separate strings
+**Model + combined transcript (2026-10-14)** — `LLM_PROVIDERS` picks the LLM that analyzes
+the transcript: `techsara` (default, FINAL choice: self-hosted `techsara-35b` at
+ai.techsarasolutions.com, Qwen-based, OpenAI-compatible chat API but it REJECTS unknown
+fields — `response_format`, `seed`, `reasoning_effort` — which the client drops +
+remembers) or `openai`. A comma list is a FALLBACK order (next runs only if the previous
+fails, recorded in `meeting.llm_failures`). Output is always ONE `result.json` /
+`report.html` / `proof/` — the per-model files and model-comparison.json of the
+2026-10-08 side-by-side test were removed. techsara-35b quirk: writes multi-paragraph values as separate strings
 (invalid JSON) — prompt asks for ONE string and `_merge_orphan_strings` repairs it.
+**Output guard (2026-10-13):** the model gets the WHOLE transcript (`LLM_TRANSCRIPT_MAX_CHARS`,
+default 400k; a "context too long" error halves it and retries, thinning lines evenly — never
+a hole in the middle; the old 60k head+tail cut dropped the middle of 2-h sessions). Replies
+are validated (`_coverage_problems` / `_description_problems`: every planned section present,
+valid statuses, ≥1 topic per ~10 min, topics reach the session end) and sent back ONCE with
+the exact problems (`chat_json(validate=...)`). A coverage reply still unusable after that
+RAISES → that model lands in `llm_failures` (never a fake 0% score). `meeting.llm.calls` /
+`corrections` and `transcript_sent` show what the model needed.
 `TECHSARA_WHISPER=true` -> transcribe with techsara-whisper (10-min chunks, 3 parallel;
 ~1x real time per chunk on the current server; one 2-h upload never answered) and
 `combine.py` merges it with the Zoom VTT: Whisper text, Zoom speaker per moment, Zoom
@@ -416,3 +423,12 @@ no S3 download for them. Lookup: exact filename first, then case-insensitive ste
 Adding a new trainer = drop the photo in `trainer/` and push.
 
 Manual reprocess: `python -m worker.worker --once --bucket <b> --prefix <meeting prefix>`.
+
+Reports are SELF-CONTAINED (2026-10-13): report.py embeds evidence images + proof texts into
+the html, so it works opened from S3 (presigned link = html only) or downloaded alone. The
+analysis video is embedded too: ffmpeg re-encodes it smaller (same duration, so timestamps
+still seek; 960/854/640 px tiers) until it fits `EMBED_VIDEO_MAX_MB` (default 20; a 42.7 MB
+2-h video -> ~8 MB) and the page plays it from a Blob. Only if no tier fits does the page fall
+back to loading analysis-video.mp4 next to it / showing its S3 path + a file picker.
+(The one-off backfill tool that re-rendered all old reports, worker/rebuild_reports.py,
+was used once on 2026-10-13/14 and removed.)

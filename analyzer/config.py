@@ -44,12 +44,10 @@ def _str(name: str, default: str = "") -> str:
 
 @dataclass
 class Config:
-    # LLM providers, in order. The FIRST one that succeeds is the PRIMARY result
-    # (result.json / report.html / proof/ -> session merge + Salesforce); every
-    # provider also gets its own result-<model>.json + report-<model>.html.
-    #   testing : LLM_PROVIDERS=techsara,openai   (both saved, ours primary)
-    #   live    : LLM_PROVIDERS=techsara          (only our model)
-    llm_providers: list = field(default_factory=lambda: ["openai"])
+    # The model that analyzes the transcript: techsara (techsara-35b, default) or
+    # openai. A comma list is a FALLBACK order — the next runs only if the previous
+    # fails. Output is always one result.json / report.html / proof/.
+    llm_providers: list = field(default_factory=lambda: ["techsara"])
 
     # OpenAI (transcript reasoning)
     openai_api_key: str = ""
@@ -174,12 +172,12 @@ def load_config() -> Config:
 
 def model_settings() -> dict:
     """LLM + transcription settings from env — shared by docker mode and the worker."""
-    providers = [p.strip().lower() for p in _str("LLM_PROVIDERS", "openai").split(",") if p.strip()]
+    providers = [p.strip().lower() for p in _str("LLM_PROVIDERS", "techsara").split(",") if p.strip()]
     unknown = [p for p in providers if p not in ("openai", "techsara")]
     if unknown:
         raise ValueError(f"LLM_PROVIDERS: unknown provider(s) {unknown}; use openai and/or techsara")
     return {
-        "llm_providers": providers or ["openai"],
+        "llm_providers": providers or ["techsara"],
         "openai_api_key": _str("OPENAI_API_KEY"),
         "openai_model": _str("OPENAI_MODEL", "gpt-4o"),
         "openai_reasoning_effort": _str("OPENAI_REASONING_EFFORT"),
