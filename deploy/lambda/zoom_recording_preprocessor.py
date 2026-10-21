@@ -1123,17 +1123,39 @@ def get_report_participants(access_token, meeting_uuid):
             return out
 
 
-def compute_trainer_attendance(access_token, meeting_id, meeting_uuid, host_email):
+def compute_trainer_attendance(access_token, meeting_id, meeting_uuid, host_email,
+                               fallback_participants=None):
     """Scheduled start, trainer (host) join time, and how many minutes late.
 
     trainer == host: match participant rows by host_email, take the EARLIEST
     join_time (the host can rejoin -> multiple rows). Late minutes are vs the
-    SCHEDULED start, floored at 0. Returns None for trainer_late_min when either
-    the scheduled time or the host's join time is unavailable (instant meeting,
-    report not ready, etc.) so the scorer simply skips the deduction.
+    SCHEDULED start, floored at 0.
+
+    Each Zoom call is best-effort and ISOLATED: a failure in one must not wipe
+    out the others. An instant/PMI meeting has no GET /meetings/{id} record (404)
+    and a brand-new meeting may have no report yet -- previously either of those
+    raised and killed the WHOLE function, so even the participant list was lost.
+    Now the scheduled-time lookup and the report-participants lookup are tried
+    separately, and if the report endpoint returns nothing we fall back to the
+    /past_meetings participants already fetched upstream (which also carry
+    join_time/leave_time). So join/leave times survive even without a scheduled
+    time or report:read:admin; trainer_late_min is simply None when the
+    scheduled start or host join time is unavailable.
     """
-    sched = get_scheduled_meeting(access_token, meeting_id)
-    parts = get_report_participants(access_token, meeting_uuid)
+    sched = {}
+    try:
+        sched = get_scheduled_meeting(access_token, meeting_id) or {}
+    except Exception as exc:
+        print(f"[ATTENDANCE] scheduled-meeting fetch failed (meeting={meeting_id}): {exc}")
+
+    parts = []
+    try:
+        parts = get_report_participants(access_token, meeting_uuid) or []
+    except Exception as exc:
+        print(f"[ATTENDANCE] report-participants fetch failed (meeting={meeting_id}): {exc}")
+    if not parts and fallback_participants:
+        parts = fallback_participants
+        print(f"[ATTENDANCE] using /past_meetings participants fallback ({len(parts)} rows)")
 
     he = (host_email or "").strip().lower()
     host_joins = sorted(
@@ -2046,7 +2068,8 @@ def enqueue_analysis_job(state):
 
 def training_rendezvous(event_type, meeting_id, base_prefix, candidate_name,
                         trainer_name, program_name=None, program_folder=None,
-                        api_access_token=None, meeting_uuid=None, host_email=None):
+                        api_access_token=None, meeting_uuid=None, host_email=None,
+                        participants=None):
     """
     Training department ONLY. Triggered on the TRANSCRIPT event — by then the
     video from the earlier recording.completed event is already in S3, so both
@@ -2126,7 +2149,8 @@ def training_rendezvous(event_type, meeting_id, base_prefix, candidate_name,
     # "no lateness" and the enqueue below still runs exactly as before.
     try:
         if api_access_token and meeting_uuid:
-            att = compute_trainer_attendance(api_access_token, meeting_id, meeting_uuid, host_email)
+            att = compute_trainer_attendance(api_access_token, meeting_id, meeting_uuid, host_email,
+                                             fallback_participants=participants)
             state.update({
                 "scheduled_start":        att.get("scheduled_start"),
                 "scheduled_duration_min": att.get("scheduled_duration_min"),
@@ -2499,6 +2523,7 @@ def process_recording_event(body, event_type):
                 api_access_token=api_access_token,   # >>> ADDED (trainer lateness)
                 meeting_uuid=meeting_uuid,           # >>> ADDED (trainer lateness)
                 host_email=host_email,               # >>> ADDED (trainer lateness)
+                participants=participants,           # >>> ADDED (attendance fallback)
             )
         except Exception as exc:
             print(f"Training rendezvous failed (meeting_id={meeting_id}): {exc}")

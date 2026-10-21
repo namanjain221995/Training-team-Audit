@@ -431,6 +431,10 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         "{\n"
         '  "overview": "<3-5 paragraph plain-English narrative of the meeting from start to finish, '
         'as ONE JSON string with paragraphs separated by \\n\\n>",\n'
+        '  "executive_summary": "<3-5 sentence executive summary of the WHOLE session for a busy reader: '
+        'how the training went overall, what the trainer focused on, the outcome / what was achieved, and '
+        'any feedback or acknowledgement the candidate gave (e.g. said it was helpful, understood, had '
+        'doubts). Keep it concise and high-level>",\n'
         '  "timeline": [{"time": "mm:ss", "event": "<what happened / what the discussion moved to>"}],\n'
         '  "topics": [\n'
         '    {"topic": "<short name>", "start": "mm:ss", "end": "mm:ss", "approx_minutes": <number>,\n'
@@ -447,12 +451,61 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
         '  "trainer_fluency": <integer 1-10 rating the trainer\'s spoken fluency and clarity '
         '(1 = very halting/unclear, 10 = highly fluent and articulate)>,\n'
         '  "trainer_fluency_note": "<=20 words justifying the fluency rating>",\n'
+        '  "trainer_effectiveness": {\n'
+        '     "overall_1_10": <integer 1-10: the trainer\'s overall effectiveness / impact this session>,\n'
+        '     "clarity_1_10": <1-10: how clearly the trainer explained concepts>,\n'
+        '     "examples_1_10": <1-10: use of concrete examples, analogies or walkthroughs>,\n'
+        '     "teaching_effectiveness_1_10": <1-10: how EFFECTIVELY topics were taught — real depth and '
+        'whether the candidate actually grasped them, NOT merely that a topic was mentioned>,\n'
+        '     "revision_summary_1_10": <1-10: did the trainer recap, summarise or revise topics to '
+        'reinforce the learning (e.g. a wrap-up, checking understanding, revisiting earlier points)>,\n'
+        '     "professionalism_1_10": <1-10: tone, conduct, respect, preparedness, time-keeping>,\n'
+        '     "engagement_1_10": <1-10: how well the trainer kept the candidate involved and engaged>,\n'
+        '     "candidate_engagement_1_10": <1-10: the candidate\'s engagement and response quality — '
+        'judged by the questions they asked, the relevance and correctness of their answers, their '
+        'follow-ups, and whether they stayed on-topic (1 = passive or off-topic, 10 = highly engaged '
+        'and responsive)>,\n'
+        '     "verdict": "<one short sentence: the overall impact of this trainer this session>",\n'
+        '     "summary": "<3-5 sentence clean narrative of the trainer\'s delivery and the candidate\'s '
+        'response: how concepts were explained, examples used, professionalism, engagement, and whether '
+        'the candidate stayed attentive>",\n'
+        '     "strengths": ["<short phrase>", "<short phrase>", "<up to 3>"],\n'
+        '     "improvements": ["<short phrase>", "<up to 3, or empty if none>"],\n'
+        '     "evidence": [{"time": "mm:ss", "aspect": "<what this shows, e.g. clear example / '
+        'professionalism / engagement / candidate attentiveness>", "quote": "<=20 word quote from the '
+        'transcript>"}]\n'
+        '  },\n'
+        '  "candidate_profile": {\n'
+        '     "overall_1_10": <integer 1-10: the candidate\'s overall performance and conduct this session>,\n'
+        '     "attentiveness_1_10": <1-10: engagement — questions asked, responses, staying on-topic>,\n'
+        '     "participation_1_10": <1-10: how actively the candidate contributed versus only listening>,\n'
+        '     "communication_1_10": <1-10: how clearly the candidate expressed their answers>,\n'
+        '     "conduct_1_10": <1-10: respectful, cooperative, professional tone and behaviour>,\n'
+        '     "understanding_1_10": <1-10: how well the candidate grasped the material taught>,\n'
+        '     "verdict": "<one short sentence on how the candidate was this session>",\n'
+        '     "summary": "<3-5 sentence clean narrative of how the candidate showed up and took part>",\n'
+        '     "strengths": ["<short phrase>", "<up to 3>"],\n'
+        '     "improvements": ["<short phrase>", "<up to 3, or empty if none>"],\n'
+        '     "evidence": [{"time": "mm:ss", "aspect": "<e.g. good question / clear answer / conduct>", '
+        '"quote": "<=20 word quote from the transcript>"}]\n'
+        '  },\n'
         '  "notable_quotes": [{"time": "mm:ss", "speaker": "<who>", "quote": "<=20 word quote>"}]\n'
         "}\n"
         "topics: EVERY distinct topic in the meeting, in order, covering the whole session "
         "(estimate times from the transcript timestamps). Mark on_curriculum=false for "
         "anything not in the planned curriculum (small talk, admin, or unrelated coaching). "
         "The timeline must cover the whole meeting in order with 6-15 entries. "
+        "trainer_effectiveness: judge the trainer's REAL impact this session from the transcript — "
+        "how clearly they explained, their use of examples, HOW EFFECTIVELY topics were actually taught "
+        "(did the candidate grasp them, not just whether a topic was mentioned), whether the trainer "
+        "RECAPPED / SUMMARISED / REVISED topics to reinforce learning, professionalism, how engaging they "
+        "kept the candidate, and the candidate's own engagement and response quality (questions asked, "
+        "relevance of answers, follow-ups, staying on-topic). Rate each 1-10 honestly from the evidence. "
+        "Give 2-3 strengths, 0-3 improvements, and 2-4 evidence moments (a real transcript timestamp + a "
+        "short quote) that justify the ratings. "
+        "candidate_profile: assess ONLY the candidate — attentiveness/engagement, participation, "
+        "communication, conduct and understanding — each 1-10 from the transcript, with strengths, "
+        "improvements and 2-4 evidence moments. Do NOT comment on the candidate's appearance, dress or looks. "
         "notable_quotes: up to 5 quotes that best characterise the session."
     )
     result = oa.chat_json(DESCRIBE_SYSTEM, user)
@@ -467,8 +520,49 @@ def describe_meeting(segments: list[dict], oa, session_label: str | None = None,
     result["trainer_fluency"] = int(fl) if isinstance(fl, (int, float)) and 1 <= fl <= 10 else None
     fn = result.get("trainer_fluency_note")
     result["trainer_fluency_note"] = fn.strip() if isinstance(fn, str) and fn.strip() else None
+    es = result.get("executive_summary")
+    result["executive_summary"] = es.strip() if isinstance(es, str) and es.strip() else None
+
+    # trainer effectiveness + candidate profile (report-only; never affect the scores)
+    result["trainer_effectiveness"] = _norm_impact(result.get("trainer_effectiveness"))
+    result["candidate_profile"] = _norm_impact(result.get("candidate_profile"))
+
     result["available"] = bool(result.get("overview"))
     return result
+
+
+def _norm_impact(obj):
+    """Normalise a 1-10 'impact' block (trainer effectiveness OR candidate profile)
+    from untrusted model output. Clamps every <name>_1_10 field to an int 1-10 (or
+    None) and cleans verdict/summary/strengths/improvements/evidence. Returns None
+    if nothing usable. Report-only — never feeds the scores."""
+    if not isinstance(obj, dict):
+        return None
+    out = {}
+    for k, v in obj.items():
+        if k.endswith("_1_10"):
+            out[k] = int(v) if isinstance(v, (int, float)) and 1 <= v <= 10 else None
+
+    def _s(k):
+        v = obj.get(k)
+        return v.strip() if isinstance(v, str) and v.strip() else None
+
+    def _strlist(k, cap=3):
+        v = obj.get(k)
+        return [x.strip() for x in v if isinstance(x, str) and x.strip()][:cap] if isinstance(v, list) else []
+
+    ev = []
+    for e in (obj.get("evidence") if isinstance(obj.get("evidence"), list) else []):
+        if isinstance(e, dict) and isinstance(e.get("quote"), str) and e["quote"].strip():
+            ev.append({"time": e["time"].strip() if isinstance(e.get("time"), str) else None,
+                       "aspect": e["aspect"].strip() if isinstance(e.get("aspect"), str) else None,
+                       "quote": e["quote"].strip()})
+    out["verdict"] = _s("verdict")
+    out["summary"] = _s("summary")
+    out["strengths"] = _strlist("strengths")
+    out["improvements"] = _strlist("improvements")
+    out["evidence"] = ev[:4]
+    return out
 
 
 def _topics_block(topics: list | None) -> str:

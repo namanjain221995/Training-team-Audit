@@ -200,6 +200,13 @@ def process_job(job: dict) -> None:
         # ── 4. session merge (all chunks of this meeting_id on this date) ───
         if meeting_id:
             _merge_session(s3, bucket, prefix, meeting_id, cfg.day_plan)
+
+        # ── 5. weekly rebuild (Option B: after EVERY day, rebuild the
+        #        candidate's week report from whatever days exist so far) ─────
+        try:
+            _rebuild_weekly(s3, bucket, prefix, cfg)
+        except Exception as exc:
+            print(f"Weekly rebuild failed (non-fatal): {exc!r}")
     finally:
         shutil.rmtree(work, ignore_errors=True)   # nothing persists on the instance
 
@@ -226,6 +233,111 @@ def _merge_session(s3, bucket: str, prefix: str, meeting_id: str, day_plan: dict
     print(f"Session merge ({session['merge']['strategy']}, {len(chunks)} chunk(s)) -> "
           f"s3://{bucket}/{out_key}  integrity={sc.get('session_integrity_score')} "
           f"coverage={sc.get('trainer_coverage_score')}%")
+
+
+# ── weekly report (Option B: rebuilt after each day) ─────────────────────────
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December"]
+WEEKLY_WINDOW_DAYS = int(os.environ.get("WEEKLY_WINDOW_DAYS", "9") or 9)
+
+
+def _prev_month(year: str, month: str):
+    try:
+        i = _MONTHS.index(month)
+    except ValueError:
+        return None
+    return (str(int(year) - 1), "December") if i == 0 else (year, _MONTHS[i - 1])
+
+
+def _candidate_prefixes(prefix: str) -> list[str]:
+    """Candidate folders to scan for this week: the session's own month AND the
+    PREVIOUS month (so a week straddling a month boundary — e.g. 29-31 Oct +
+    1-2 Nov — is found as one week). Only earlier days can already exist, so the
+    next month is never needed here."""
+    parts = prefix.strip("/").split("/")
+    if len(parts) < 9 or parts[0] != "Training":
+        return []
+    prog, trn, year, month, cand = parts[1], parts[2], parts[3], parts[4], parts[5]
+    out = ["/".join(["Training", prog, trn, year, month, cand]) + "/"]
+    pm = _prev_month(year, month)
+    if pm:
+        out.append("/".join(["Training", prog, trn, pm[0], pm[1], cand]) + "/")
+    return out
+
+
+def _date_from_key(key: str, cand_prefix: str):
+    from datetime import datetime
+    rest = key[len(cand_prefix):] if key.startswith(cand_prefix) else key
+    seg = rest.split("/", 1)[0]
+    try:
+        return datetime.strptime(seg, "%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _rebuild_weekly(s3, bucket: str, prefix: str, cfg) -> None:
+    """Rebuild the candidate's cumulative week report after each day and upload
+    week-report.html + week-result.json. Idempotent (overwrites).
+
+    Robust to month boundaries: scans this month + the previous month's candidate
+    folder, and keeps only the days whose DATE is within WEEKLY_WINDOW_DAYS of the
+    session that just ran — so a week that spans two months is grouped as ONE
+    week, and a DIFFERENT week the candidate did in an adjacent month is not mixed
+    in. The report is written to every candidate folder that contributed a day, so
+    it is findable under either month."""
+    from datetime import timedelta
+    cand_prefixes = _candidate_prefixes(prefix)
+    if not cand_prefixes:
+        print("Weekly: could not derive candidate prefix; skipping")
+        return
+    cur_date = _date_from_key(prefix, cand_prefixes[0])   # the Date folder of this session
+
+    picked, contributing = [], set()   # picked = [(key, cand_prefix)]
+    for cp in cand_prefixes:
+        for k in _list_keys(s3, bucket, cp):
+            if not k.endswith("/result.json"):
+                continue
+            if cur_date is not None:
+                kd = _date_from_key(k, cp)
+                if kd is None or abs((kd - cur_date).days) > WEEKLY_WINDOW_DAYS:
+                    continue
+            picked.append((k, cp))
+            contributing.add(cp)
+    if not picked:
+        print("Weekly: no daily result.json in this week window yet")
+        return
+
+    wk_dir = tempfile.mkdtemp(prefix="weekly-", dir=WORK_ROOT)
+    try:
+        paths = []
+        for i, (k, _cp) in enumerate(sorted(picked)):
+            local = os.path.join(wk_dir, f"d{i}", "result.json")
+            os.makedirs(os.path.dirname(local), exist_ok=True)
+            s3.download_file(bucket, k, local)
+            paths.append(local)
+
+        from analyzer import weekly as weekly_mod
+        oa = None
+        try:
+            from analyzer.openai_client import make_clients
+            oa = make_clients(cfg)[0]
+        except Exception as exc:
+            print(f"Weekly: no LLM client ({exc}); building without the AI narrative")
+
+        out = os.path.join(wk_dir, "out")
+        agg = weekly_mod.build(paths, out, oa=oa)
+        if not agg:
+            return
+        for cp in sorted(contributing):
+            for fn, ctype in (("week-report.html", "text/html"),
+                              ("week-result.json", "application/json")):
+                p = os.path.join(out, fn)
+                if os.path.isfile(p):
+                    s3.upload_file(p, bucket, cp + fn, ExtraArgs={"ContentType": ctype})
+        print(f"Weekly report rebuilt ({len(agg['meta']['days_found'])} day(s): "
+              f"{agg['meta']['days_found']}) -> {sorted(contributing)}")
+    finally:
+        shutil.rmtree(wk_dir, ignore_errors=True)
 
 
 # ── S3 helpers ───────────────────────────────────────────────────────────────

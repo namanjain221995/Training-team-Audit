@@ -52,6 +52,8 @@ REASON_INFO = {
                                  "Topics from the day's plan that the trainer did not cover. These are penalised here because the session ran short or overall coverage was low — the time to cover them was not used."),
     "topics_shallow":           ("Topics covered too shallowly",
                                  "Topics the trainer touched on but did not take to the depth the plan expects, based on the time spent versus the time allotted."),
+    "topics_missed_full":       ("Topics not covered despite full time",
+                                 "The session ran its full length (or longer), yet some planned topics were still not covered. The trainer had the time, so this is a lighter deduction than when the session also ran short."),
     "topics_left_flag":         ("Topics left uncovered (had time)",
                                  "The session ran its full length but some planned topics were still not covered — flagged for review, no marks deducted."),
     "trainer_camera_off":       ("Trainer camera off while teaching",
@@ -187,6 +189,23 @@ body{font-size:15px}
 .stat .d{font-size:12.5px;color:var(--muted);margin-top:8px}
 .gauge{position:relative;height:12px;background:#e9eef5;border-radius:999px;margin-top:10px;overflow:hidden}
 .gauge>div{height:100%;border-radius:999px;background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)}
+.egrid{display:grid;grid-template-columns:210px 1fr;gap:18px;align-items:start;margin-top:4px}
+.estat{background:linear-gradient(160deg,#fbfdff,#f1f6fc);border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center}
+.estat .k{font-size:11.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:800}
+.estat .v{font-size:36px;font-weight:800;margin-top:6px;line-height:1}
+.estat .v small{font-size:16px;color:var(--muted);font-weight:700}
+.edims{display:flex;flex-direction:column;gap:11px}
+.erow{display:grid;grid-template-columns:190px 1fr 48px;gap:12px;align-items:center}
+.elbl{font-size:13.5px;font-weight:600}
+.ebar{height:10px;background:#e9eef5;border-radius:999px;overflow:hidden}
+.ebar>div{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+.enum{font-size:13px;font-weight:800;color:var(--accent);text-align:right;font-variant-numeric:tabular-nums}
+.sigrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+ul.si{list-style:none;margin:6px 0 0;padding:0;font-size:14px}
+ul.si li{display:flex;gap:9px;align-items:flex-start;padding:5px 0}
+ul.si .m{font-weight:800;flex:none}
+ul.si .m.ok{color:var(--ok)} ul.si .m.warn{color:var(--warn)}
+@media(max-width:640px){.egrid{grid-template-columns:1fr}.erow{grid-template-columns:130px 1fr 44px}.sigrid{grid-template-columns:1fr}}
 .summary-final{background:linear-gradient(160deg,#ffffff,#eef5ff);border:1px solid #d7e3f5}
 .verdict{font-size:15.5px;font-weight:600;margin:6px 0 14px;color:#1e293b}
 .sum-scores{display:flex;gap:14px;flex-wrap:wrap;margin:8px 0 14px}
@@ -259,6 +278,8 @@ def render(result: dict) -> str:
         _key_moments_card(result),
         _coverage_card(result),
         _metrics_card(result),
+        _effectiveness_card(result),
+        _candidate_card(result),
         _rhythm_card(result),
         _language_card(result),
         _video_card(result),
@@ -279,8 +300,9 @@ def _topbar(result):
     meeting = result.get("meeting") or {}
     nav = "".join(f"<a href='#{i}'>{t}</a>" for i, t in (
         ("flags", "Red flags"), ("key-moments", "Key moments"), ("coverage", "Coverage"),
-        ("metrics", "Metrics"), ("rhythm", "Rhythm"), ("language", "Language"),
-        ("video", "Video"), ("recommendations", "Actions")))
+        ("metrics", "Metrics"), ("effectiveness", "Effectiveness"), ("candidate", "Candidate"),
+        ("rhythm", "Rhythm"), ("language", "Language"), ("video", "Video"),
+        ("recommendations", "Actions")))
     model = (meeting.get("llm") or {}).get("model")
     return ("<div class='topbar noprint'>"
             f"<span class='brand'>📋 Session Review · Day {_e(meeting.get('day'))}"
@@ -724,6 +746,128 @@ def _metrics_card(result):
             f"<div class='stats-grid'>{tile_talk}{tile_ratio}{tile_flu}{tile_cov}</div></section>")
 
 
+def _impact_body(obj, dims, overall_label="Overall"):
+    """Shared renderer for the trainer-effectiveness and candidate cards:
+    overall gauge + sub-score bars + strengths/improvements + summary + evidence.
+    Returns one HTML string."""
+    overall = obj.get("overall_1_10")
+    big = ""
+    if isinstance(overall, (int, float)):
+        gauge = f"<div class='gauge'><div style='width:{int(overall) * 10}%'></div></div>"
+        big = (f"<div class='estat'><div class='k'>{_e(overall_label)}</div>"
+               f"<div class='v'>{_e(overall)}<small>/10</small></div>{gauge}</div>")
+    rows = "".join(
+        f"<div class='erow'><div class='elbl'>{_e(label)}</div>"
+        f"<div class='ebar'><div style='width:{int(v) * 10}%'></div></div>"
+        f"<div class='enum'>{_e(v)}/10</div></div>"
+        for label, v in dims if isinstance(v, (int, float)))
+    grid = f"<div class='egrid'>{big}<div class='edims'>{rows}</div></div>" if (big or rows) else ""
+    verdict = f"<p class='verdict'>{_e(obj.get('verdict'))}</p>" if obj.get("verdict") else ""
+    summary = f"<p style='margin-top:16px'>{_e(obj.get('summary'))}</p>" if obj.get("summary") else ""
+
+    def _si(title, items, mark, cls):
+        if not items:
+            return ""
+        lis = "".join(f"<li><span class='m {cls}'>{mark}</span><span>{_e(x)}</span></li>" for x in items)
+        return f"<div><div class='subh'>{title}</div><ul class='si'>{lis}</ul></div>"
+    si = ""
+    if obj.get("strengths") or obj.get("improvements"):
+        si = ("<div class='sigrid'>"
+              + _si("What worked well", obj.get("strengths") or [], "✓", "ok")
+              + _si("What to improve", obj.get("improvements") or [], "➤", "warn")
+              + "</div>")
+
+    ev_html = ""
+    ev = [e for e in (obj.get("evidence") or []) if isinstance(e, dict) and e.get("quote")]
+    if ev:
+        blocks = ""
+        for e in ev:
+            at = f" <span class='t'>{_ts(e.get('time'))}</span>" if e.get("time") else ""
+            tag = f"<span class='chip na'>{_e(e.get('aspect'))}</span> " if e.get("aspect") else ""
+            blocks += f"<div class='quote'>{tag}&ldquo;{_e(e.get('quote'))}&rdquo;{at}</div>"
+        ev_html = f"<div class='subh'>Evidence from the session</div>{blocks}"
+    return f"{verdict}{grid}{si}{summary}{ev_html}"
+
+
+def _has_impact(obj, dims):
+    return isinstance(obj, dict) and (
+        isinstance(obj.get("overall_1_10"), (int, float))
+        or any(isinstance(v, (int, float)) for _, v in dims)
+        or obj.get("summary"))
+
+
+def _effectiveness_card(result):
+    te = (result.get("meeting_description") or {}).get("trainer_effectiveness")
+    if not isinstance(te, dict):
+        return ""
+    dims = [
+        ("Explanation clarity", te.get("clarity_1_10")),
+        ("Use of examples", te.get("examples_1_10")),
+        ("Teaching effectiveness (not just covered)", te.get("teaching_effectiveness_1_10")),
+        ("Revision & summarization", te.get("revision_summary_1_10")),
+        ("Professionalism", te.get("professionalism_1_10")),
+        ("Kept candidate engaged", te.get("engagement_1_10")),
+    ]
+    if not _has_impact(te, dims):
+        return ""
+    return ("<section id='effectiveness' class='card'><h2>🎯 Trainer effectiveness &amp; impact</h2>"
+            "<div class='lead'>A qualitative read of how the trainer delivered this session &mdash; how "
+            "clearly they explained, their use of examples, how <b>effectively</b> topics were actually "
+            "taught (not just covered), whether they recapped / summarised / revised, professionalism, and "
+            "how engaged they kept the candidate. Context only; this does "
+            "<b>not</b> change either score. Timestamps below jump to that moment in the video.</div>"
+            f"{_impact_body(te, dims, 'Overall impact')}</section>")
+
+
+def _candidate_video_chips(result):
+    v = result.get("video") or {}
+    if not v.get("enabled"):
+        return ""
+    chips = []
+    pct = ((v.get("camera") or {}).get("candidate") or {}).get("on_camera_pct_of_speaking")
+    if pct is not None:
+        cls = "ok" if pct >= 0.8 else ("warn" if pct >= 0.5 else "bad")
+        chips.append(f"<span class='chip {cls}'>On camera {round(pct * 100)}% of speaking time</span>")
+    gaze = (v.get("vision") or {}).get("gaze") or []
+    likes = [g.get("reading_likelihood") for g in gaze
+             if isinstance(g, dict) and g.get("reading_likelihood") is not None]
+    if likes:
+        worst = max(likes)
+        chips.append(f"<span class='chip {'ok' if worst < 0.6 else 'bad'}'>"
+                     f"Reading-answer likelihood {round(worst * 100)}%</span>")
+    same = ((v.get("vision") or {}).get("consistency") or {}).get("same_person_throughout")
+    if same is True:
+        chips.append("<span class='chip ok'>Same person throughout</span>")
+    elif same is False:
+        chips.append("<span class='chip bad'>On-camera person may have changed</span>")
+    if not chips:
+        return ""
+    return ("<div class='subh'>Camera &amp; presence (measured from the video)</div>"
+            f"<div class='pills'>{''.join(chips)}</div>")
+
+
+def _candidate_card(result):
+    cp = (result.get("meeting_description") or {}).get("candidate_profile")
+    cp = cp if isinstance(cp, dict) else {}
+    dims = [
+        ("Attentiveness / engagement", cp.get("attentiveness_1_10")),
+        ("Participation", cp.get("participation_1_10")),
+        ("Communication", cp.get("communication_1_10")),
+        ("Conduct / behaviour", cp.get("conduct_1_10")),
+        ("Understanding shown", cp.get("understanding_1_10")),
+    ]
+    vchips = _candidate_video_chips(result)
+    has = _has_impact(cp, dims)
+    if not (has or vchips):
+        return ""
+    body = _impact_body(cp, dims) if has else ""
+    return ("<section id='candidate' class='card'><h2>👤 Candidate in this session</h2>"
+            "<div class='lead'>How the candidate showed up and took part &mdash; attentiveness, "
+            "participation, communication, conduct and understanding &mdash; plus objective camera-presence "
+            "facts from the recording. Context only; this does <b>not</b> change either score.</div>"
+            f"{vchips}{body}</section>")
+
+
 def _rhythm_card(result):
     rh = ((result.get("transcript") or {}).get("metrics") or {}).get("conversation_rhythm") or {}
     if not rh:
@@ -941,7 +1085,12 @@ def _summary_card(result):
     covline = _e(s.get("trainer_coverage") or "")
     durline = _e(s.get("duration") or "")
 
-    return ("<section id='report-summary' class='card summary-final'><h2>🧾 Report summary</h2>"
+    exec_sum = (result.get("meeting_description") or {}).get("executive_summary")
+    exec_html = (f"<p style='font-size:15.5px;margin-bottom:14px'>{_e(exec_sum)}</p>"
+                 if exec_sum else "")
+
+    return ("<section id='report-summary' class='card summary-final'><h2>🧾 Executive summary</h2>"
+            f"{exec_html}"
             f"<div class='verdict'>{_e(verdict)}</div>"
             "<div class='sum-scores'>"
             f"<div class='sum-pill'><div class='n num {i_cls}'>{_e(integ)}</div>"
@@ -1019,7 +1168,7 @@ def _recommendations_card(result):
         r = d.get("reason")
         if r == "session_too_short":
             acts.append("Use the full scheduled time — the session ended early, so planned material was cut.")
-        elif r == "topics_missed":
+        elif r in ("topics_missed", "topics_missed_full"):
             acts.append("Cover the topics that were missed: " + names(lambda c: c.get("status") == "not_covered") + ".")
         elif r == "topics_shallow":
             acts.append("Go deeper on under-covered topics: " + names(
@@ -1129,7 +1278,7 @@ def _flag_extra(result, reason):
 
     cov = (result.get("transcript") or {}).get("coverage_analysis") or {}
     rows = [c for c in (cov.get("coverage") or []) if isinstance(c, dict)]
-    if reason == "topics_missed":
+    if reason in ("topics_missed", "topics_missed_full"):
         sel = [c for c in rows if c.get("status") == "not_covered"]
     elif reason == "topics_shallow":
         sel = [c for c in rows if c.get("status") == "partial"

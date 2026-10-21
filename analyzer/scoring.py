@@ -34,6 +34,7 @@ TRAINER_NE_BRACKET_PTS = 5
 # Coverage / depth (integrated — replaces key_section_rushed)
 COVERAGE_VERY_LESS_PCT = 50   # < this % covered = "very less" -> deduct missed topics even at full length
 MISSED_TOPIC_PTS       = -5   # per planned topic not covered (when session short OR coverage < 50%)
+MISSED_TOPIC_FULL_PTS  = -3   # per planned topic not covered EVEN when the session ran full length / over
 SHALLOW_TOPIC_PTS      = -4   # per topic covered but below the expected depth
 SESSION_SHORT_GRACE_MIN   = 10  # minutes a session may run short with NO deduction
 SESSION_SHORT_BRACKET_MIN = 5   # each further 5-min bracket short...
@@ -82,9 +83,11 @@ IGNORED_INTEGRITY_FLAGS = {"fabricated_experience", "scripted_deception"}
 #                                   not during a shared document -> -4 each
 #   - trainer_joined_late         : trainer (host) joined > 5 min after the
 #                                   scheduled start -> -5 per 5-min band
+#   - topics_missed_full          : planned topics still not covered EVEN when the
+#                                   session ran its full length or over -> -3 each
 SCORED_FLAGS = {"session_too_short", "person_change_midsession", "trainer_non_english_heavy",
-                "topics_missed", "topics_shallow", "trainer_camera_off", "trainer_reading_screen",
-                "trainer_joined_late"}
+                "topics_missed", "topics_missed_full", "topics_shallow", "trainer_camera_off",
+                "trainer_reading_screen", "trainer_joined_late"}
 # NOTE (multi-recording): if a host stop/restarts, one logical session lands in
 # several chunks and EACH chunk looks "short". The merge step (§9 CLAUDE.md)
 # must recompute this from summed chunk durations — per-chunk raw numbers are
@@ -186,9 +189,10 @@ def assemble(meta: dict, transcript: dict, video: dict, cfg) -> dict:
 
     # ── coverage: missed topics + shallow depth (integrated) ────────────────
     # Topics are matched by MEANING and order-independently in analyze_coverage — the
-    # trainer need not name them or cover them in sequence. Missed topics are penalised
-    # only when the session ran short OR overall coverage is very low (< 50%); if the
-    # session ran full length with decent coverage, they are just flagged for review.
+    # trainer need not name them or cover them in sequence. A planned topic left
+    # not_covered ALWAYS costs marks: -5 each when the session also ran short or
+    # coverage was very low (< 50%), and -3 each even when the session ran its full
+    # length or longer (the trainer had the time and it was their job to fit them in).
     rows = [c for c in (cov.get("coverage") or []) if isinstance(c, dict)]
     coverage_pct = cov.get("coverage_pct")
     missed = [c for c in rows if c.get("status") == "not_covered"]
@@ -215,12 +219,15 @@ def assemble(meta: dict, transcript: dict, video: dict, cfg) -> dict:
                 "evidence": f"{len(missed)} planned topic(s) not covered ({why}): "
                             + "; ".join(_topic_line(c) for c in missed[:8])})
         else:
+            # Full length (or over) but topics STILL not covered: the trainer had
+            # the time and it was their job to fit the planned topics into it.
+            # Lighter than the short-session case, but still a deduction.
             deductions.append({
-                "reason": "topics_left_flag", "points": 0, "severity": "info",
-                "evidence": f"session ran full length ({actual_min} of {planned_min} min) but "
-                            f"{len(missed)} topic(s) were left uncovered: "
-                            + ", ".join(str(c.get('section', '?')) for c in missed[:8])
-                            + " — review whether acceptable"})
+                "reason": "topics_missed_full", "severity": "medium",
+                "points": MISSED_TOPIC_FULL_PTS * len(missed),
+                "evidence": f"{len(missed)} planned topic(s) not covered even though the session ran "
+                            f"its full length ({actual_min} of {planned_min} min): "
+                            + "; ".join(_topic_line(c) for c in missed[:8])})
         for c in missed:
             flags.append({"source": "transcript", "type": "topic_not_covered",
                           "section": c.get("section"), "expected_minutes": c.get("expected_minutes"),
