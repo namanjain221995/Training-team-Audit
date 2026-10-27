@@ -68,9 +68,17 @@ _shutdown = False
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Training-analysis EC2 worker")
-    ap.add_argument("--once", action="store_true", help="process one prefix and exit (no SQS)")
-    ap.add_argument("--bucket", default="", help="--once: S3 bucket")
-    ap.add_argument("--prefix", default="", help="--once: full meeting prefix ending with /{meeting_id}/")
+    ap.add_argument("--once", action="store_true", help="process one meeting prefix and exit (no SQS)")
+    ap.add_argument("--weekly", action="store_true",
+                    help="build the weekly report only (no reprocess); --prefix = any one day's meeting prefix")
+    ap.add_argument("--backfill", action="store_true",
+                    help="reprocess stale daily reports under --prefix root + ensure every candidate's weekly")
+    ap.add_argument("--bucket", default="", help="S3 bucket")
+    ap.add_argument("--prefix", default="", help="meeting prefix (--once/--weekly) or root prefix (--backfill)")
+    ap.add_argument("--since", default="", help="--backfill: only sessions on/after YYYY-MM-DD")
+    ap.add_argument("--dry-run", action="store_true", help="--backfill: list what would run, change nothing")
+    ap.add_argument("--force", action="store_true",
+                    help="--backfill: reprocess/rebuild even reports already at the current schema")
     args = ap.parse_args()
 
     _resolve_openai_key()
@@ -78,8 +86,22 @@ def main() -> int:
     if args.once:
         if not (args.bucket and args.prefix):
             ap.error("--once needs --bucket and --prefix")
-        job = _job_from_prefix(args.bucket, args.prefix)
-        process_job(job)
+        process_job(_job_from_prefix(args.bucket, args.prefix))
+        return 0
+
+    if args.weekly:
+        if not (args.bucket and args.prefix):
+            ap.error("--weekly needs --bucket and --prefix (any one day's meeting prefix of the week)")
+        s3 = boto3.client("s3", region_name=REGION)
+        _rebuild_weekly(s3, args.bucket, args.prefix.rstrip("/") + "/", _weekly_cfg())
+        return 0
+
+    if args.backfill:
+        if not args.bucket:
+            ap.error("--backfill needs --bucket (and optional --prefix root, default Training/Resume-Based/)")
+        root = (args.prefix or "Training/Resume-Based/").rstrip("/") + "/"
+        backfill(args.bucket, root, since=args.since.strip() or None,
+                 dry_run=args.dry_run, force=args.force)
         return 0
 
     if not QUEUE_URL:
@@ -264,6 +286,22 @@ def _candidate_prefixes(prefix: str) -> list[str]:
     return out
 
 
+def _rel_href(day_key: str, base_prefix: str) -> str:
+    """Relative link from the week report (at base_prefix = candidate folder) to a
+    day's report.html. OS-independent (pure S3-key string math). Same-month days
+    resolve to '{Date}/{Time}/{MeetingID}/report.html'; a day in the other month
+    gets the right '../../{OtherMonth}/...' path."""
+    rp = day_key[: -len("result.json")] + "report.html" if day_key.endswith("result.json") else day_key
+    if rp.startswith(base_prefix):
+        return rp[len(base_prefix):]
+    b = base_prefix.rstrip("/").split("/")
+    k = rp.split("/")
+    i = 0
+    while i < len(b) and i < len(k) and b[i] == k[i]:
+        i += 1
+    return "../" * (len(b) - i) + "/".join(k[i:])
+
+
 def _date_from_key(key: str, cand_prefix: str):
     from datetime import datetime
     rest = key[len(cand_prefix):] if key.startswith(cand_prefix) else key
@@ -306,6 +344,7 @@ def _rebuild_weekly(s3, bucket: str, prefix: str, cfg) -> None:
         print("Weekly: no daily result.json in this week window yet")
         return
 
+    base = cand_prefixes[0]   # the week report is written here; links are relative to it
     wk_dir = tempfile.mkdtemp(prefix="weekly-", dir=WORK_ROOT)
     try:
         paths = []
@@ -313,6 +352,14 @@ def _rebuild_weekly(s3, bucket: str, prefix: str, cfg) -> None:
             local = os.path.join(wk_dir, f"d{i}", "result.json")
             os.makedirs(os.path.dirname(local), exist_ok=True)
             s3.download_file(bucket, k, local)
+            try:   # stamp the relative link to this day's report.html for the week report
+                with open(local, encoding="utf-8") as fh:
+                    d = json.load(fh)
+                d["report_href"] = _rel_href(k, base)
+                with open(local, "w", encoding="utf-8") as fh:
+                    json.dump(d, fh)
+            except Exception:
+                pass
             paths.append(local)
 
         from analyzer import weekly as weekly_mod
@@ -337,6 +384,121 @@ def _rebuild_weekly(s3, bucket: str, prefix: str, cfg) -> None:
               f"{agg['meta']['days_found']}) -> {sorted(contributing)}")
     finally:
         shutil.rmtree(wk_dir, ignore_errors=True)
+
+
+# ── backfill: reprocess stale daily reports + ensure weeklies ────────────────
+def _weekly_cfg():
+    """A minimal Config carrying only the model settings, for make_clients() in
+    --weekly / weekly-ensure (no video/job needed)."""
+    from analyzer.config import Config, model_settings
+    return Config(**model_settings())
+
+
+def _result_schema_version(s3, bucket: str, meeting_prefix: str):
+    """schema_version of an existing result.json, or None if there is no result.json
+    (never analyzed). 0 if present but unstamped (analyzed by old code)."""
+    try:
+        body = s3.get_object(Bucket=bucket, Key=meeting_prefix + "result.json")["Body"].read()
+        v = (json.loads(body).get("meeting") or {}).get("schema_version")
+        return int(v) if isinstance(v, (int, float)) else 0
+    except Exception:
+        return None
+
+
+def _weekly_exists(s3, bucket: str, cand_prefix: str) -> bool:
+    try:
+        s3.head_object(Bucket=bucket, Key=cand_prefix + "week-report.html")
+        return True
+    except Exception:
+        return False
+
+
+def _list_meeting_prefixes(s3, bucket: str, root: str) -> list[str]:
+    """Every meeting folder under root — identified by a training-temp.json or a
+    result.json (so both analyzed and not-yet-analyzed sessions are included)."""
+    out = set()
+    for k in _list_keys(s3, bucket, root):
+        if k.endswith("/training-temp.json"):
+            out.add(k[: -len("training-temp.json")])
+        elif k.endswith("/result.json"):
+            out.add(k[: -len("result.json")])
+    return sorted(out)
+
+
+def _since_ok(meeting_prefix: str, since: str | None) -> bool:
+    if not since:
+        return True
+    from datetime import datetime
+    parts = meeting_prefix.strip("/").split("/")
+    if len(parts) < 7:
+        return True
+    try:
+        return datetime.strptime(parts[6], "%Y-%m-%d") >= datetime.strptime(since, "%Y-%m-%d")
+    except Exception:
+        return True
+
+
+def backfill(bucket: str, root: str, since: str | None = None,
+             dry_run: bool = False, force: bool = False) -> None:
+    """Reprocess every stale daily report under `root` with the current code, then
+    ensure every candidate has a weekly. Idempotent: skips reports already at the
+    current schema_version unless --force. Reprocessing re-runs the full analyzer
+    (video + LLM) per day, so scope with --prefix / --since and preview with
+    --dry-run first."""
+    from analyzer.api import SCHEMA_VERSION
+    s3 = boto3.client("s3", region_name=REGION)
+    prefixes = _list_meeting_prefixes(s3, bucket, root)
+    print(f"Backfill scan under s3://{bucket}/{root}: {len(prefixes)} meeting folder(s) "
+          f"(target schema v{SCHEMA_VERSION}, since={since or 'any'}, force={force})")
+
+    to_do, skip = [], 0
+    for mp in prefixes:
+        if not _since_ok(mp, since):
+            continue
+        ver = _result_schema_version(s3, bucket, mp)
+        if force or ver is None or ver < SCHEMA_VERSION:
+            to_do.append(mp)
+        else:
+            skip += 1
+    print(f"  to reprocess: {len(to_do)}   already current (skip): {skip}")
+
+    if dry_run:
+        for mp in to_do[:60]:
+            print(f"  WOULD reprocess: {mp}")
+        if len(to_do) > 60:
+            print(f"  ... +{len(to_do) - 60} more")
+        print("Dry run — nothing changed. Re-run without --dry-run to apply.")
+        return
+
+    done = failed = 0
+    for mp in to_do:
+        try:
+            print(f"\n--- backfill reprocess: {mp} ---")
+            process_job(_job_from_prefix(bucket, mp))   # reprocess + upload + merge + weekly rebuild
+            done += 1
+        except Exception as exc:
+            failed += 1
+            print(f"  backfill FAILED for {mp}: {exc!r}")
+
+    # ensure a weekly for EVERY candidate (covers candidates whose days were all
+    # already current, so no day reprocessed and no weekly was triggered)
+    all_cands: dict = {}
+    for mp in prefixes:
+        cps = _candidate_prefixes(mp)
+        if cps:
+            all_cands.setdefault(cps[0], mp)   # one meeting prefix per candidate
+    cfg = _weekly_cfg()
+    built = 0
+    for cand, mp in all_cands.items():
+        if force or not _weekly_exists(s3, bucket, cand):
+            try:
+                _rebuild_weekly(s3, bucket, mp, cfg)
+                built += 1
+            except Exception as exc:
+                print(f"  weekly build FAILED for {cand}: {exc!r}")
+
+    print(f"\nBackfill done: reprocessed {done}, failed {failed}, skipped {skip}; "
+          f"weeklies ensured {built} (of {len(all_cands)} candidate(s)).")
 
 
 # ── S3 helpers ───────────────────────────────────────────────────────────────

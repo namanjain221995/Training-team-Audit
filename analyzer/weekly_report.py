@@ -101,9 +101,12 @@ def _day_detail(per_day):
             flags_html = ("<div class='subh'>Flagged this day</div>"
                           "<div class='pills'><span class='chip ok'>No deductions</span></div>")
         title = p.get("day_title") or p.get("day_step_name") or ""
+        href = p.get("report_href")
+        open_link = (f"<a class='ts' href='{_e(href)}' target='_blank' rel='noopener'>"
+                     f"open full day report &#8599;</a>" if href else "")
         blocks += (f"<div class='dayblock'><div class='dayhead'>"
                    f"<h3>Day {_e(p.get('day'))} <span class='minlbl'>{_e(title)}</span></h3>"
-                   f"<span class='minlbl'>{_e(p.get('date'))}</span></div>"
+                   f"<span class='minlbl'>{_e(p.get('date'))} {open_link}</span></div>"
                    f"<div class='pills' style='margin-top:8px'>{chips}</div>"
                    f"{exec_p}{topics_html}{who}{flags_html}</div>")
     return ("<section id='detail' class='card'><h2>🗂️ Each day in detail</h2>"
@@ -158,9 +161,15 @@ def render(week: dict) -> str:
     trs = ""
     for p in per_day:
         tier_cls = _cls(p.get("integrity"))
-        flags = ", ".join(_e(f) for f in (p.get("flags") or [])) or "—"
+        fd = p.get("flags_detail") or []
+        flags = ", ".join(
+            f"{_e(REASON_INFO.get(x['reason'], (x['reason'], ''))[0])} (&minus;{abs(x.get('points') or 0)})"
+            for x in fd) or "—"
         length = f"{_e(p.get('length_pct'))}%" if p.get("length_pct") is not None else "—"
-        trs += (f"<tr><td><b>Day {_e(p.get('day'))}</b><div class='minlbl'>{_e(p.get('date'))}</div></td>"
+        href = p.get("report_href")
+        day_lbl = (f"<a href='{_e(href)}' target='_blank' rel='noopener'>Day {_e(p.get('day'))} &#8599;</a>"
+                   if href else f"Day {_e(p.get('day'))}")
+        trs += (f"<tr><td><b>{day_lbl}</b><div class='minlbl'>{_e(p.get('date'))}</div></td>"
                 f"<td><span class='chip {tier_cls}'>{_e(p.get('integrity'))}/100</span></td>"
                 f"<td>{_e(p.get('coverage'))}%</td><td>{length}</td>"
                 f"<td>{_e(p.get('tier'))}</td>"
@@ -249,7 +258,6 @@ def render(week: dict) -> str:
     tally = week.get("flag_tally") or {}
     flags_card = ""
     if tally:
-        from .report import REASON_INFO
         trs2 = ""
         for reason, days in sorted(tally.items(), key=lambda kv: -len(kv[1])):
             title = REASON_INFO.get(reason, (reason.replace("_", " ").capitalize(), ""))[0]

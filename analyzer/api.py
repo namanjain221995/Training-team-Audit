@@ -30,6 +30,12 @@ from . import scoring
 
 _REPO_CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
 
+# Bump when the result.json / report schema meaningfully changes, so the worker
+# backfill can tell an old report from a current one and reprocess only the stale.
+# 3 = trainer effectiveness + candidate profile + executive summary + attendance
+#     + topics_missed_full (-3) + weekly report.
+SCHEMA_VERSION = 3
+
 
 def build_config(
     video_path: str,
@@ -240,6 +246,7 @@ def run(cfg: Config) -> int:
         "duration_sec": metrics["duration_sec"],
         "config_source": cfg.config_source,
         "analyzed_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": SCHEMA_VERSION,   # used by the worker backfill to skip up-to-date reports
         # trainer attendance / lateness (from training-temp.json; None on local runs)
         "scheduled_start": cfg.scheduled_start,
         "scheduled_duration_min": cfg.scheduled_duration_min,

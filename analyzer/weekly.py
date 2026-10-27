@@ -156,7 +156,7 @@ def aggregate(dailies: list[dict]) -> dict:
             "overview": desc.get("overview"),
             "trainer_overall": te.get("overall_1_10"), "trainer_summary": te.get("summary"),
             "candidate_overall": cp.get("overall_1_10"), "candidate_summary": cp.get("summary"),
-            "report": "report.html", "report_dir": os.path.dirname(d.get("_path", "")),
+            "report_href": d.get("report_href"),   # relative link to this day's report.html
         })
         if desc.get("executive_summary"):
             daily_summaries.append({"day": day, "summary": desc["executive_summary"],
