@@ -101,16 +101,23 @@ def aggregate(dailies: list[dict]) -> dict:
     flag_tally: dict = {}
     trainer_rows, cand_rows = [], []
     daily_summaries = []
+    incomplete_days = []
 
     for d in dailies:
         m = d.get("meeting") or {}
         sc = d.get("scoring") or {}
         day = int(m.get("day"))
+        # a PROVABLE pipeline failure (no transcript / coverage never produced) is
+        # withheld from every week number, but still LISTED so reviewers see it.
+        incomplete = (m.get("analysis_status") == "incomplete"
+                      or sc.get("analysis_status") == "incomplete")
+        if incomplete:
+            incomplete_days.append(day)
         integ = _num(sc.get("session_integrity_score"))
         cov = _num(sc.get("trainer_coverage_score"))
-        if integ is not None:
+        if not incomplete and integ is not None:
             integ_vals.append(integ)
-        if cov is not None:
+        if not incomplete and cov is not None:
             cov_vals.append(cov)
 
         ca = (d.get("transcript") or {}).get("coverage_analysis") or {}
@@ -119,8 +126,9 @@ def aggregate(dailies: list[dict]) -> dict:
         n_par = sum(1 for c in rows if c.get("status") == "partial")
         n_miss = sum(1 for c in rows if c.get("status") == "not_covered")
         total = ca.get("expected_section_count") or len(rows)
-        cum_weighted += n_cov + 0.5 * n_par
-        cum_total += total or 0
+        if not incomplete:
+            cum_weighted += n_cov + 0.5 * n_par
+            cum_total += total or 0
         missed_sections = [c.get("section") for c in rows if c.get("status") == "not_covered"]
 
         flags = []
@@ -138,16 +146,20 @@ def aggregate(dailies: list[dict]) -> dict:
         desc = d.get("meeting_description") or {}
         te = desc.get("trainer_effectiveness") or {}
         cp = desc.get("candidate_profile") or {}
-        trainer_rows.append({"day": day, **te})
-        cand_rows.append({"day": day, "camera_pct": ((d.get("video") or {}).get("camera") or {})
-                          .get("candidate", {}).get("on_camera_pct_of_speaking"), **cp})
+        if not incomplete:
+            trainer_rows.append({"day": day, **te})
+            cand_rows.append({"day": day, "camera_pct": ((d.get("video") or {}).get("camera") or {})
+                              .get("candidate", {}).get("on_camera_pct_of_speaking"), **cp})
 
         topics = [{"section": c.get("section"), "status": c.get("status"),
                    "expected": c.get("expected_minutes"), "spent": c.get("approx_minutes_spent"),
                    "note": c.get("depth_note")} for c in rows]
         per_day.append({
-            "day": day, "date": _date_of(d), "integrity": integ, "coverage": cov,
-            "length_pct": length_pct, "tier": sc.get("tier"),
+            "day": day, "date": _date_of(d),
+            "incomplete": incomplete,
+            "integrity": None if incomplete else integ,
+            "coverage": None if incomplete else cov,
+            "length_pct": length_pct, "tier": None if incomplete else sc.get("tier"),
             "day_title": m.get("day_title"), "day_step_name": m.get("day_step_name"),
             "covered": n_cov, "partial": n_par, "missed": n_miss, "total": total,
             "missed_sections": missed_sections, "flags": flags, "flags_detail": flags_detail,
@@ -158,7 +170,7 @@ def aggregate(dailies: list[dict]) -> dict:
             "candidate_overall": cp.get("overall_1_10"), "candidate_summary": cp.get("summary"),
             "report_href": d.get("report_href"),   # relative link to this day's report.html
         })
-        if desc.get("executive_summary"):
+        if not incomplete and desc.get("executive_summary"):
             daily_summaries.append({"day": day, "summary": desc["executive_summary"],
                                     "trainer": te.get("summary"), "candidate": cp.get("summary")})
 
@@ -189,6 +201,7 @@ def aggregate(dailies: list[dict]) -> dict:
             "candidate": m0.get("candidate_name"), "trainer": m0.get("trainer_name"),
             "program": m0.get("program") or m0.get("day_title"),
             "days_found": days_found, "days_missing": days_missing,
+            "days_incomplete": sorted(set(incomplete_days)),
             "date_from": per_day[0]["date"] if per_day else None,
             "date_to": per_day[-1]["date"] if per_day else None,
         },

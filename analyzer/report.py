@@ -150,6 +150,9 @@ a{color:var(--accent)}
 .kv td{padding:7px 8px 7px 0;vertical-align:top}
 .kv td:first-child{color:var(--muted);white-space:nowrap;width:210px}
 .note{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:12px;padding:11px 14px;font-size:13px;margin-bottom:14px}
+.banner-note{border-radius:14px;padding:13px 17px;margin-bottom:14px;font-size:14px;font-weight:600;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3}
+.banner-note a{color:#4338ca;font-weight:700}
+.banner-note.warn{background:#fffbeb;border-color:#fcd34d;color:#78350f}
 .flag{border:1px solid var(--line);border-left-width:6px;border-radius:12px;padding:15px 17px;margin-bottom:12px;background:#fff}
 .flag.critical,.flag.high{border-left-color:var(--bad)}
 .flag.medium{border-left-color:var(--warn)}
@@ -294,8 +297,12 @@ def render(result: dict, base_dir: str | None = None) -> str:
 def _render(result: dict) -> str:
     meeting = result.get("meeting") or {}
     scoring = result.get("scoring") or {}
-    tier = scoring.get("tier") or "Review"
-    cls, tier_sub = TIER_STYLE.get(tier, TIER_STYLE["Review"])
+    if scoring.get("analysis_status") == "incomplete":
+        # withhold the tier hero — an incomplete run has no real score to band
+        cls, tier, tier_sub = "warn", "Incomplete", "analysis could not be completed"
+    else:
+        tier = scoring.get("tier") or "Review"
+        cls, tier_sub = TIER_STYLE.get(tier, TIER_STYLE["Review"])
     session_dur = int(meeting.get("duration_sec") or 0)
 
     parts = [
@@ -306,6 +313,8 @@ def _render(result: dict) -> str:
         f"<style>{CSS}</style></head><body>",
         _topbar(result),
         "<div class='page'>",
+        _merge_banner(result),
+        _incomplete_banner(result),
         _banner(tier, cls, tier_sub, meeting),
         _score_cards(result),
         _howto_note(),
@@ -411,6 +420,44 @@ def _script(session_dur):
 
 
 # ── sections ────────────────────────────────────────────────────────────────
+def _merge_banner(result):
+    """Shown ONLY when this day was recorded in more than one part (host left
+    and rejoined) and the parts were merged into this one report. Links each
+    recording's own report, where its video + evidence frames live."""
+    m = result.get("merge") or {}
+    n = m.get("chunk_count") or 0
+    if n <= 1:
+        return ""
+    links = []
+    for i, c in enumerate(m.get("chunks") or [], start=1):
+        href = c.get("report_href")
+        if href:
+            links.append(f"<a href='{_e(href)}' target='_blank' rel='noopener'>Part {i} &#8599;</a>")
+    tail = (" Per-recording detail (with video + evidence frames): " + " · ".join(links)
+            if links else "")
+    return (f"<div class='banner-note'>🔗 This day was recorded in <b>{_e(n)} parts</b> "
+            f"(the host left and rejoined). The parts have been merged into this one report "
+            f"so the scores reflect the whole day.{tail}</div>")
+
+
+def _incomplete_banner(result):
+    """Shown when the analysis could not be completed (no transcript, or the
+    coverage pass never produced output). Scores are withheld — NOT a real 0."""
+    sc = result.get("scoring") or {}
+    meeting = result.get("meeting") or {}
+    if sc.get("analysis_status") != "incomplete" and meeting.get("analysis_status") != "incomplete":
+        return ""
+    reason = sc.get("analysis_reason") or meeting.get("analysis_reason") or ""
+    why = {"no_transcript": "no usable transcript was produced for this session",
+           "coverage_unavailable": "the coverage analysis did not complete",
+           "partial_transcript": "part of this multi-recording day's transcript could not be loaded",
+           "merge_pending": "this multi-recording day has not finished merging yet"}.get(
+               reason, "the analysis did not complete")
+    return (f"<div class='banner-note warn'>⚠️ <b>Analysis incomplete — re-run needed.</b> "
+            f"Scores are withheld because {why}. This is NOT a real zero — the session "
+            f"is excluded from the weekly averages until it is re-analysed.</div>")
+
+
 def _banner(tier, cls, sub, meeting):
     icon = {"ok": "✅", "warn": "⚠️", "bad": "🚨"}.get(cls, "⚠️")
     return (f"<header class='banner {cls}'>"
@@ -423,6 +470,19 @@ def _banner(tier, cls, sub, meeting):
 def _score_cards(result):
     scoring = result.get("scoring") or {}
     meeting = result.get("meeting") or {}
+    if scoring.get("analysis_status") == "incomplete":
+        actual = round((meeting.get("duration_sec") or 0) / 60.0, 1)
+        return (
+            "<section id='summary' class='scores'>"
+            "<div class='score-card'><div class='num'>—</div>"
+            "<div class='lbl'>Session integrity</div>"
+            "<div class='hint'>Analysis incomplete — re-run needed (score withheld, not a real zero).</div></div>"
+            "<div class='score-card'><div class='num'>—</div>"
+            "<div class='lbl'>Day-plan coverage</div>"
+            "<div class='hint'>Not available for an incomplete analysis.</div></div>"
+            f"<div class='score-card'><div class='num'>{_e(actual)}<small> min</small></div>"
+            "<div class='lbl'>Session length</div><div class='hint'>recording length captured</div></div>"
+            "</section>")
     integ = scoring.get("session_integrity_score")
     cov = scoring.get("trainer_coverage_score")
     i_cls = "ok" if (integ or 0) >= 80 else ("warn" if (integ or 0) >= 50 else "bad")
@@ -1124,6 +1184,13 @@ def _video_card(result):
 
 def _summary_card(result):
     sc = result.get("scoring") or {}
+    if sc.get("analysis_status") == "incomplete":
+        exec_sum = (result.get("meeting_description") or {}).get("executive_summary")
+        body = (f"<p>{_e(exec_sum)}</p>" if exec_sum else "") + (
+            "<p>This session's scores are <b>withheld</b> because the analysis could not be "
+            "completed (not a real zero). Re-run the analysis to score it.</p>")
+        return ("<section id='summary-final' class='card summary-final'><h2>🧾 Executive summary</h2>"
+                f"{body}</section>")
     integ = sc.get("session_integrity_score")
     cov = sc.get("trainer_coverage_score")
     tier = sc.get("tier") or "Review"
@@ -1221,6 +1288,8 @@ def _key_moments_card(result):
 
 def _recommendations_card(result):
     sc = result.get("scoring") or {}
+    if sc.get("analysis_status") == "incomplete":
+        return ""   # no real deductions to recommend against on an incomplete run
     scored = [d for d in (sc.get("deductions") or []) if (d.get("points") or 0) != 0]
     rows = [c for c in ((result.get("transcript") or {}).get("coverage_analysis") or {}).get("coverage", [])
             if isinstance(c, dict)]

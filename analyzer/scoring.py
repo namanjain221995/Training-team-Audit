@@ -346,18 +346,47 @@ def assemble(meta: dict, transcript: dict, video: dict, cfg) -> dict:
 
     report_metrics = _report_metrics(transcript, description, rows, coverage)
 
+    # ── analysis validity gate ──────────────────────────────────────────────
+    # Distinguish a PROVABLE pipeline failure (no transcript, or coverage was
+    # never produced) from a REAL low/zero score (the trainer genuinely did not
+    # cover the plan). Only the former is marked "incomplete" and withheld from
+    # the score + the weekly averages; a real 0% keeps its score. We NEVER infer
+    # "incomplete" from a low number — only from missing inputs. A genuine
+    # analyze_coverage run always echoes one row per planned section, so an empty
+    # coverage list with sections expected means the model never produced usable
+    # output (not that nothing was taught).
+    is_mock = bool(cov.get("_mock")) or bool((description or {}).get("_mock"))
+    seg_count = transcript.get("segment_count") or 0
+    cov_rows = [c for c in (cov.get("coverage") or []) if isinstance(c, dict)]
+    expected_cnt = cov.get("expected_section_count") or 0
+    analysis_status, analysis_reason = "complete", None
+    if not is_mock:
+        if seg_count == 0 or dur_sec == 0:
+            analysis_status, analysis_reason = "incomplete", "no_transcript"
+        elif not cov_rows and expected_cnt > 0:
+            analysis_status, analysis_reason = "incomplete", "coverage_unavailable"
+    meta["analysis_status"] = analysis_status
+    if analysis_reason:
+        meta["analysis_reason"] = analysis_reason
+
+    complete = analysis_status == "complete"
+    scoring_block = {
+        "analysis_status": analysis_status,
+        "trainer_coverage_score": coverage if complete else None,
+        "session_integrity_score": integrity if complete else None,
+        "tier": _tier(integrity) if complete else None,
+        "deductions": applied,
+    }
+    if analysis_reason:
+        scoring_block["analysis_reason"] = analysis_reason
+
     return {
         "meeting": meta,
         "summary": _summary(meta, cov, coverage, integrity, applied,
-                            planned_min, actual_min),
+                            planned_min, actual_min, status=analysis_status),
         "meeting_description": description,
         "report_metrics": report_metrics,
-        "scoring": {
-            "trainer_coverage_score": coverage,
-            "session_integrity_score": integrity,
-            "tier": _tier(integrity),
-            "deductions": applied,
-        },
+        "scoring": scoring_block,
         "flags": flags,
         "transcript": transcript,
         "video": video,
@@ -365,8 +394,9 @@ def assemble(meta: dict, transcript: dict, video: dict, cfg) -> dict:
 
 
 def _summary(meta, cov, coverage, integrity, applied,
-             planned_min, actual_min) -> dict:
+             planned_min, actual_min, status="complete") -> dict:
     """Plain-language read of the whole result, for humans skimming result.json."""
+    incomplete = status != "complete"
     rows = [c for c in (cov.get("coverage") or []) if isinstance(c, dict)]
     total_planned = cov.get("expected_section_count") or len(rows)
     n_cov = sum(1 for c in rows if c.get("status") == "covered")
@@ -386,9 +416,11 @@ def _summary(meta, cov, coverage, integrity, applied,
         "duration": (f"{actual_min} of {planned_min} planned minutes "
                      f"({round(100 * actual_min / planned_min)}%)" if planned_min and actual_min
                      else f"{actual_min} min"),
-        "trainer_coverage": f"{coverage}% — {n_cov} covered, {n_par} partial, "
-                            f"{n_miss} not covered of {total_planned} planned sections",
-        "session_integrity": f"{integrity}/100 ({_tier(integrity)})",
+        "trainer_coverage": ("not available — analysis incomplete, re-run needed" if incomplete
+                             else f"{coverage}% — {n_cov} covered, {n_par} partial, "
+                                  f"{n_miss} not covered of {total_planned} planned sections"),
+        "session_integrity": ("incomplete — re-run needed" if incomplete
+                              else f"{integrity}/100 ({_tier(integrity)})"),
         "red_flags": red_flags or ["none"],
         "proof_folder": "proof/ (one folder per red flag, with frames and quotes)",
     }

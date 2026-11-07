@@ -34,7 +34,10 @@ _REPO_CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # backfill can tell an old report from a current one and reprocess only the stale.
 # 3 = trainer effectiveness + candidate profile + executive summary + attendance
 #     + topics_missed_full (-3) + weekly report.
-SCHEMA_VERSION = 3
+# 4 = multi-recording day merge (stitch + re-run LLM over the whole day) + one
+#     date-level day report + analysis-validity gate (analysis_status) + weekly
+#     reads the merged session-result per day.
+SCHEMA_VERSION = 4
 
 
 def build_config(

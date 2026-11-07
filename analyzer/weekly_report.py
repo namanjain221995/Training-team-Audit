@@ -58,12 +58,17 @@ def _status_chip(status):
 def _day_detail(per_day):
     blocks = ""
     for p in per_day:
-        ic = _cls(p.get("integrity"))
-        chips = (f"<span class='chip {ic}'>Integrity {_e(p.get('integrity'))}/100</span> "
-                 f"<span class='chip na'>Coverage {_e(p.get('coverage'))}%</span> "
-                 + (f"<span class='chip na'>Length {_e(p.get('length_pct'))}%</span> "
-                    if p.get("length_pct") is not None else "")
-                 + f"<span class='chip na'>{_e(p.get('tier'))}</span>")
+        if p.get("incomplete"):
+            chips = ("<span class='chip na'>Incomplete — re-run needed</span> "
+                     + (f"<span class='chip na'>Length {_e(p.get('length_pct'))}%</span>"
+                        if p.get("length_pct") is not None else ""))
+        else:
+            ic = _cls(p.get("integrity"))
+            chips = (f"<span class='chip {ic}'>Integrity {_e(p.get('integrity'))}/100</span> "
+                     f"<span class='chip na'>Coverage {_e(p.get('coverage'))}%</span> "
+                     + (f"<span class='chip na'>Length {_e(p.get('length_pct'))}%</span> "
+                        if p.get("length_pct") is not None else "")
+                     + f"<span class='chip na'>{_e(p.get('tier'))}</span>")
 
         exec_p = f"<p>{_e(p.get('exec_summary'))}</p>" if p.get("exec_summary") else ""
 
@@ -126,9 +131,14 @@ def render(week: dict) -> str:
     ic, cc = _cls(wi), _cls(wc, 70, 40)
 
     miss = meta.get("days_missing") or []
+    inc = meta.get("days_incomplete") or []
     miss_note = (f"<div class='note'>⚠ Days {', '.join(str(x) for x in miss)} are missing — this week "
                  f"report is built from the {len(meta.get('days_found') or [])} day(s) available.</div>"
                  if miss else "")
+    if inc:
+        miss_note += (f"<div class='note'>⚠ Day(s) {', '.join(str(x) for x in inc)} could not be fully "
+                      f"analysed (incomplete — re-run needed) and are excluded from the week scores "
+                      f"below.</div>")
 
     # ── header + headline ───────────────────────────────────────────────────
     header = (f"<header class='banner {ic}'>"
@@ -160,15 +170,22 @@ def render(week: dict) -> str:
     # ── per-day table + trend ───────────────────────────────────────────────
     trs = ""
     for p in per_day:
+        href = p.get("report_href")
+        day_lbl = (f"<a href='{_e(href)}' target='_blank' rel='noopener'>Day {_e(p.get('day'))} &#8599;</a>"
+                   if href else f"Day {_e(p.get('day'))}")
+        if p.get("incomplete"):
+            trs += (f"<tr><td><b>{day_lbl}</b><div class='minlbl'>{_e(p.get('date'))}</div></td>"
+                    f"<td><span class='chip na'>Incomplete</span></td>"
+                    f"<td>—</td><td>—</td><td>—</td>"
+                    f"<td style='font-size:13px;color:#475569'>analysis incomplete — re-run needed "
+                    f"(excluded from the week averages)</td></tr>")
+            continue
         tier_cls = _cls(p.get("integrity"))
         fd = p.get("flags_detail") or []
         flags = ", ".join(
             f"{_e(REASON_INFO.get(x['reason'], (x['reason'], ''))[0])} (&minus;{abs(x.get('points') or 0)})"
             for x in fd) or "—"
         length = f"{_e(p.get('length_pct'))}%" if p.get("length_pct") is not None else "—"
-        href = p.get("report_href")
-        day_lbl = (f"<a href='{_e(href)}' target='_blank' rel='noopener'>Day {_e(p.get('day'))} &#8599;</a>"
-                   if href else f"Day {_e(p.get('day'))}")
         trs += (f"<tr><td><b>{day_lbl}</b><div class='minlbl'>{_e(p.get('date'))}</div></td>"
                 f"<td><span class='chip {tier_cls}'>{_e(p.get('integrity'))}/100</span></td>"
                 f"<td>{_e(p.get('coverage'))}%</td><td>{length}</td>"

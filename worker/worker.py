@@ -219,8 +219,13 @@ def process_job(job: dict) -> None:
         print(f"Uploaded {uploaded} files to s3://{bucket}/{prefix}")
 
         # ── 4. session merge (all chunks of this meeting_id on this date) ───
+        #     Non-fatal: the per-chunk result.json + report were already uploaded
+        #     above, so a merge glitch must not fail (and re-run) the whole job.
         if meeting_id:
-            _merge_session(s3, bucket, prefix, meeting_id, cfg.day_plan)
+            try:
+                _merge_session(s3, bucket, prefix, meeting_id, cfg)
+            except Exception as exc:
+                print(f"Session merge failed (non-fatal): {exc!r}")
 
         # ── 5. weekly rebuild (Option B: after EVERY day, rebuild the
         #        candidate's week report from whatever days exist so far) ─────
@@ -232,28 +237,153 @@ def process_job(job: dict) -> None:
         shutil.rmtree(work, ignore_errors=True)   # nothing persists on the instance
 
 
-def _merge_session(s3, bucket: str, prefix: str, meeting_id: str, day_plan: dict) -> None:
+def _merge_session(s3, bucket: str, prefix: str, meeting_id: str, cfg) -> None:
+    """Build the ONE day-level result for this meeting_id+date from all its
+    recording chunks. One recording -> fast copy (no LLM). Two or more -> stitch
+    the transcripts and re-run the LLM once over the whole day (see merge.py),
+    then render ONE date-level report.html so reviewers never open a single part
+    by mistake. Every breakable step logs where + why it failed."""
     date_prefix = _date_prefix(prefix)
     if not date_prefix:
-        print("Could not derive date prefix; skipping session merge")
+        print("  [merge] could not derive date prefix; skipping session merge")
         return
-    suffix = f"/{meeting_id}/result.json"
-    keys = [k for k in _list_keys(s3, bucket, date_prefix) if k.endswith(suffix)]
-    if not keys:
-        print("No chunk results found for merge (unexpected)"); return
-    chunks = []
-    for k in sorted(keys):
-        body = s3.get_object(Bucket=bucket, Key=k)["Body"].read()
-        chunks.append((k, json.loads(body)))
-    session = session_merge.merge(chunks, MERGE_STRATEGY, day_plan)
-    out_key = f"{date_prefix}session-result-{meeting_id}.json"
-    s3.put_object(Bucket=bucket, Key=out_key,
-                  Body=json.dumps(session, indent=2, ensure_ascii=False).encode(),
-                  ContentType="application/json")
-    sc = session.get("scoring", {})
-    print(f"Session merge ({session['merge']['strategy']}, {len(chunks)} chunk(s)) -> "
-          f"s3://{bucket}/{out_key}  integrity={sc.get('session_integrity_score')} "
-          f"coverage={sc.get('trainer_coverage_score')}%")
+
+    # Load every recording's result.json under this date, then group by the DAY
+    # (topic): all recordings that share this date + Day-number are ONE day, even
+    # across different meeting_ids (host restarted into a new meeting, or a
+    # re-taught session) — owner rule: combine + re-analyse as one day. When the
+    # Day number is unknown (Salesforce lookup failed) we can't safely combine
+    # across meetings, so we fall back to grouping by meeting_id.
+    loaded = []
+    for k in sorted(k for k in _list_keys(s3, bucket, date_prefix) if k.endswith("/result.json")):
+        try:
+            body = s3.get_object(Bucket=bucket, Key=k)["Body"].read()
+            loaded.append((k, json.loads(body)))
+        except Exception as exc:
+            print(f"  [merge:load-chunk] FAILED key={k} : {exc!r}")
+    if not loaded:
+        print("  [merge] no chunk results found for merge (unexpected)"); return
+
+    day = _int_or_none(getattr(cfg, "day_number", None))
+    if day is not None:
+        chunks = [(k, r) for k, r in loaded
+                  if _int_or_none((r.get("meeting") or {}).get("day")) == day]
+        group_id = f"day{day}"
+    else:
+        chunks = []
+    if not chunks:   # unknown day, or nothing matched -> this meeting only
+        suffix = f"/{meeting_id}/result.json"
+        chunks = [(k, r) for k, r in loaded if k.endswith(suffix)]
+        group_id = meeting_id
+    if not chunks:
+        print("  [merge] every chunk result failed to load; skipping merge"); return
+
+    n = len(chunks)
+    mwork = tempfile.mkdtemp(prefix=f"merge-{meeting_id}-", dir=WORK_ROOT)
+    try:
+        chunk_transcripts: dict = {}
+        oa_list: list = []
+        if n > 1:
+            # a multi-recording day (same meeting restarted, or two meetings of
+            # the same day): re-stitch the transcripts + re-run the LLM
+            print(f"  [merge] {n} recordings for {group_id} on this date "
+                  f"— stitching + re-analysing the whole day")
+            for i, (k, _res) in enumerate(chunks):
+                try:
+                    chunk_transcripts[k] = _load_chunk_segments(
+                        s3, bucket, k, os.path.join(mwork, f"c{i}"))
+                except Exception as exc:
+                    print(f"  [merge:load-transcript] FAILED key={k} : {exc!r}")
+                    chunk_transcripts[k] = []
+            oa_list = _merge_clients(cfg)
+
+        session = session_merge.merge(chunks, MERGE_STRATEGY, cfg,
+                                      oa_list=oa_list, chunk_transcripts=chunk_transcripts)
+
+        out_key = f"{date_prefix}session-result-{group_id}.json"
+        s3.put_object(Bucket=bucket, Key=out_key,
+                      Body=json.dumps(session, indent=2, ensure_ascii=False).encode(),
+                      ContentType="application/json")
+
+        merge_block = session.get("merge") or {}
+        if (merge_block.get("chunk_count") or 0) > 1:
+            # only a genuinely merged day gets a date-level report (a single
+            # recording already has its own report.html with its video)
+            _render_session_report(s3, bucket, date_prefix, group_id, session)
+
+        sc = session.get("scoring") or {}
+        print(f"  [merge] {merge_block.get('strategy')} x{merge_block.get('chunk_count')} "
+              f"(of {merge_block.get('recordings_total')} rec) -> s3://{bucket}/{out_key}  "
+              f"status={sc.get('analysis_status')} "
+              f"integrity={sc.get('session_integrity_score')} "
+              f"coverage={sc.get('trainer_coverage_score')}%")
+    finally:
+        shutil.rmtree(mwork, ignore_errors=True)
+
+
+def _load_chunk_segments(s3, bucket: str, result_key: str, dest: str) -> list:
+    """Transcript segments for ONE recording chunk. Prefer the persisted
+    transcript-combined.json (speaker-labelled segments); else the raw Zoom VTT.
+    Returns [] if neither is present (logged)."""
+    os.makedirs(dest, exist_ok=True)
+    chunk_prefix = result_key[: -len("result.json")]
+    cj = _download_key(s3, bucket, chunk_prefix + "transcript-combined.json", dest)
+    if cj:
+        try:
+            with open(cj, encoding="utf-8") as fh:
+                obj = json.load(fh)
+            segs = obj.get("segments") if isinstance(obj, dict) else obj
+            if segs:
+                return segs
+        except Exception as exc:
+            print(f"  [merge:combined-json] parse failed key={result_key} : {exc!r}")
+    vtt = _download_first(s3, bucket, chunk_prefix + "TRANSCRIPT/", (".vtt",), dest)
+    if vtt:
+        try:
+            from analyzer import transcript as T
+            return T.parse_vtt(vtt)
+        except Exception as exc:
+            print(f"  [merge:vtt] parse failed key={result_key} : {exc!r}")
+    print(f"  [merge] no transcript found for chunk {chunk_prefix}")
+    return []
+
+
+def _merge_clients(cfg) -> list:
+    try:
+        from analyzer.openai_client import make_clients
+        return make_clients(cfg)
+    except Exception as exc:
+        print(f"  [merge] no LLM client ({exc!r}); a multi-recording day cannot be "
+              f"re-analysed — it will be marked analysis incomplete")
+        return []
+
+
+def _render_session_report(s3, bucket: str, date_prefix: str, group_id: str, session: dict) -> None:
+    """Render the ONE day-level report from the merged result and upload it to the
+    date folder as report-{group_id}.html (group_id = day{N}, or a meeting_id when
+    the Day number is unknown — keyed so two different days on one date never
+    overwrite each other). Best-effort — a render failure never aborts the merge."""
+    try:
+        from analyzer import report as R
+        merge_block = session.get("merge") or {}
+        # relative links to each recording's own report (video + evidence frames)
+        for c in merge_block.get("chunks") or []:
+            k = c.get("key") or ""
+            if k.startswith(date_prefix) and k.endswith("result.json"):
+                c["report_href"] = k[len(date_prefix): -len("result.json")] + "report.html"
+        html = R.render(session, base_dir=None)
+        tmp = tempfile.mkdtemp(prefix="dayreport-", dir=WORK_ROOT)
+        try:
+            p = os.path.join(tmp, "report.html")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(html)
+            out = f"{date_prefix}report-{group_id}.html"
+            s3.upload_file(p, bucket, out, ExtraArgs={"ContentType": "text/html"})
+            print(f"  [merge] day report -> s3://{bucket}/{out}")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    except Exception as exc:
+        print(f"  [merge:render-report] FAILED date={date_prefix} group={group_id} : {exc!r}")
 
 
 # ── weekly report (Option B: rebuilt after each day) ─────────────────────────
@@ -286,20 +416,107 @@ def _candidate_prefixes(prefix: str) -> list[str]:
     return out
 
 
-def _rel_href(day_key: str, base_prefix: str) -> str:
-    """Relative link from the week report (at base_prefix = candidate folder) to a
-    day's report.html. OS-independent (pure S3-key string math). Same-month days
-    resolve to '{Date}/{Time}/{MeetingID}/report.html'; a day in the other month
-    gets the right '../../{OtherMonth}/...' path."""
-    rp = day_key[: -len("result.json")] + "report.html" if day_key.endswith("result.json") else day_key
-    if rp.startswith(base_prefix):
-        return rp[len(base_prefix):]
+def _relpath(key: str, base_prefix: str) -> str:
+    """Relative path from base_prefix (candidate folder) to an S3 key.
+    OS-independent (pure key string math)."""
+    if key.startswith(base_prefix):
+        return key[len(base_prefix):]
     b = base_prefix.rstrip("/").split("/")
-    k = rp.split("/")
+    k = key.split("/")
     i = 0
     while i < len(b) and i < len(k) and b[i] == k[i]:
         i += 1
     return "../" * (len(b) - i) + "/".join(k[i:])
+
+
+def _rel_href(day_key: str, base_prefix: str) -> str:
+    """Relative link from the week report to a per-recording report.html
+    (derived from that recording's result.json key)."""
+    rp = (day_key[: -len("result.json")] + "report.html"
+          if day_key.endswith("result.json") else day_key)
+    return _relpath(rp, base_prefix)
+
+
+def _exists(s3, bucket: str, key: str) -> bool:
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception:
+        return False
+
+
+def _day_report_href(s3, bucket: str, key: str, base_prefix: str, session: dict | None = None) -> str:
+    """The canonical day report link for the weekly table. A merged (>1
+    recording) day has a date-level report.html; a single-recording day links its
+    one recording's report.html; a legacy per-recording result.json links itself."""
+    bn = key.rsplit("/", 1)[-1]
+    if bn.startswith("session-result-") and bn.endswith(".json"):
+        date_dir = key[: key.rfind("/") + 1]
+        mid = bn[len("session-result-"):-len(".json")]
+        merged = date_dir + f"report-{mid}.html"   # only a >1-recording day has this
+        if _exists(s3, bucket, merged):
+            target = merged
+        else:
+            chunks = ((session or {}).get("merge") or {}).get("chunks") or []
+            k0 = chunks[0].get("key") if chunks else None
+            target = (k0[: -len("result.json")] + "report.html"
+                      if k0 and k0.endswith("result.json") else merged)
+        return _relpath(target, base_prefix)
+    return _rel_href(key, base_prefix)
+
+
+def _file_day(s3, bucket: str, key: str):
+    """The Day-number a result file belongs to. Parsed straight from a
+    session-result-day{N}.json name (no fetch); otherwise read from the file's
+    meeting.day."""
+    bn = key.rsplit("/", 1)[-1]
+    if bn.startswith("session-result-day") and bn.endswith(".json"):
+        n = _int_or_none(bn[len("session-result-day"):-len(".json")])
+        if n is not None:
+            return n
+    try:
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return _int_or_none((json.loads(body).get("meeting") or {}).get("day"))
+    except Exception:
+        return None
+
+
+def _pick_week_sources(s3, bucket: str, cand_prefixes: list, cur_date) -> list:
+    """One result file PER (candidate, date, Day-number) in the week window.
+    Prefer the merged session-result-*.json (which already combines all the
+    recordings of a day's topic, even across meeting_ids); fall back to ONE
+    per-recording result.json for a day that has no session file yet. Keyed by
+    (cand_prefix, date, day) so a merged same-topic day appears once, two DIFFERENT
+    days on one date are both kept, and recording chunks never double-count.
+    Returns [(key, cand_prefix, provisional)] — provisional=True marks an un-merged
+    multi-recording day (shown but excluded from the week math)."""
+    session_by: dict = {}
+    legacy_by: dict = {}
+    legacy_count: dict = {}
+    for cp in cand_prefixes:
+        for k in _list_keys(s3, bucket, cp):
+            bn = k.rsplit("/", 1)[-1]
+            is_session = bn.startswith("session-result-") and bn.endswith(".json")
+            is_legacy = k.endswith("/result.json")
+            if not (is_session or is_legacy):
+                continue
+            kd = _date_from_key(k, cp)
+            if cur_date is not None and (kd is None or abs((kd - cur_date).days) > WEEKLY_WINDOW_DAYS):
+                continue
+            ds = kd.strftime("%Y-%m-%d") if kd else "?"
+            dkey = (cp, ds, _file_day(s3, bucket, k))
+            if is_session:
+                session_by[dkey] = (k, cp)
+            else:
+                legacy_count[dkey] = legacy_count.get(dkey, 0) + 1
+                legacy_by.setdefault(dkey, (k, cp))           # first recording of that day
+    out = [(k, cp, False) for (k, cp) in session_by.values()]
+    for dkey, (k, cp) in legacy_by.items():
+        if dkey not in session_by:
+            # un-merged: a single recording is a real day; >1 recording means the
+            # merge hasn't run, so this one chunk is NOT the whole day -> provisional
+            out.append((k, cp, legacy_count.get(dkey, 1) > 1))
+    return out
 
 
 def _date_from_key(key: str, cand_prefix: str):
@@ -329,37 +546,34 @@ def _rebuild_weekly(s3, bucket: str, prefix: str, cfg) -> None:
         return
     cur_date = _date_from_key(prefix, cand_prefixes[0])   # the Date folder of this session
 
-    picked, contributing = [], set()   # picked = [(key, cand_prefix)]
-    for cp in cand_prefixes:
-        for k in _list_keys(s3, bucket, cp):
-            if not k.endswith("/result.json"):
-                continue
-            if cur_date is not None:
-                kd = _date_from_key(k, cp)
-                if kd is None or abs((kd - cur_date).days) > WEEKLY_WINDOW_DAYS:
-                    continue
-            picked.append((k, cp))
-            contributing.add(cp)
+    picked = _pick_week_sources(s3, bucket, cand_prefixes, cur_date)
     if not picked:
-        print("Weekly: no daily result.json in this week window yet")
+        print("Weekly: no daily/session result in this week window yet")
         return
+    contributing = {cp for _k, cp, _p in picked}
 
     base = cand_prefixes[0]   # the week report is written here; links are relative to it
     wk_dir = tempfile.mkdtemp(prefix="weekly-", dir=WORK_ROOT)
     try:
         paths = []
-        for i, (k, _cp) in enumerate(sorted(picked)):
+        for i, (k, _cp, provisional) in enumerate(sorted(picked)):
             local = os.path.join(wk_dir, f"d{i}", "result.json")
             os.makedirs(os.path.dirname(local), exist_ok=True)
             s3.download_file(bucket, k, local)
-            try:   # stamp the relative link to this day's report.html for the week report
+            try:   # stamp the relative link to this day's canonical report.html
                 with open(local, encoding="utf-8") as fh:
                     d = json.load(fh)
-                d["report_href"] = _rel_href(k, base)
+                d["report_href"] = _day_report_href(s3, bucket, k, base, d)
+                if provisional:
+                    # an un-merged multi-recording day: don't let one chunk's
+                    # numbers stand in for the day — show it, exclude from the math
+                    d.setdefault("meeting", {})["analysis_status"] = "incomplete"
+                    d["meeting"]["analysis_reason"] = "merge_pending"
+                    d.setdefault("scoring", {})["analysis_status"] = "incomplete"
                 with open(local, "w", encoding="utf-8") as fh:
                     json.dump(d, fh)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"  [weekly:stamp-href] key={k} : {exc!r}")
             paths.append(local)
 
         from analyzer import weekly as weekly_mod
