@@ -75,8 +75,35 @@ def load_transcript(cfg, out_dir: str | None = None,
     return transcribe_whisper(cfg.video_path, cfg.whisper_model), "whisper", info
 
 
+def _plaintext_path(path: str) -> str:
+    """Some Zoom VTT/transcript objects are stored gzip-compressed in S3 (the
+    file starts with the gzip magic 1f 8b). webvtt.read() reads as UTF-8 text and
+    dies on those. If the file is gzip, decompress it to a sibling .plain.vtt and
+    return that path; otherwise return `path` unchanged."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(2)
+    except OSError:
+        return path
+    if head != b"\x1f\x8b":
+        return path
+    import gzip
+    out = path + ".plain.vtt"
+    try:
+        with gzip.open(path, "rb") as src:
+            data = src.read()
+        with open(out, "wb") as dst:
+            dst.write(data)
+        print(f"  decompressed gzip transcript -> {out}")
+        return out
+    except Exception as exc:
+        print(f"  gzip transcript decompress failed ({exc!r}); using raw file")
+        return path
+
+
 def parse_vtt(path: str) -> list[dict]:
     import webvtt
+    path = _plaintext_path(path)
     segments = []
     for cap in webvtt.read(path):
         raw = cap.text.replace("\n", " ").strip()

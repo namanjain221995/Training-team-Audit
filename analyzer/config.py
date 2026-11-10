@@ -199,8 +199,12 @@ def _apply_training_temp(cfg: Config) -> None:
     if not (cfg.training_temp_path and os.path.exists(cfg.training_temp_path)):
         return
     try:
-        with open(cfg.training_temp_path, encoding="utf-8") as fh:
-            t = json.load(fh)
+        with open(cfg.training_temp_path, "rb") as fh:
+            raw = fh.read()
+        if raw[:2] == b"\x1f\x8b":          # gzip-compressed (some S3 objects are)
+            import gzip
+            raw = gzip.decompress(raw)
+        t = json.loads(raw.decode("utf-8"))
     except Exception as exc:
         print(f"Could not read training-temp.json ({exc}); falling back to .env values")
         return
