@@ -105,7 +105,16 @@ def parse_vtt(path: str) -> list[dict]:
     import webvtt
     path = _plaintext_path(path)
     segments = []
-    for cap in webvtt.read(path):
+    try:
+        caps = webvtt.read(path)
+    except Exception as exc:
+        # the stored .vtt is not a valid transcript (e.g. the Lambda saved a
+        # gzipped Zoom HTML auth/error page instead of the VTT). Treat as "no
+        # transcript" so the session is marked analysis_incomplete rather than
+        # crashing the whole job.
+        print(f"  VTT at {path} is not valid WebVTT ({exc!r}); treating as no transcript")
+        return []
+    for cap in caps:
         raw = cap.text.replace("\n", " ").strip()
         speaker, text = None, raw
         m = re.match(r"^\s*([^:]{1,60}?):\s*(.*)$", raw)
