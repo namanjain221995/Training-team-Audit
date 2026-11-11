@@ -187,11 +187,15 @@ def process_job(job: dict) -> None:
     work = tempfile.mkdtemp(prefix=f"job-{meeting_id or 'meeting'}-", dir=WORK_ROOT)
     try:
         # ── 1. download inputs ──────────────────────────────────────────────
-        video = _download_first(s3, bucket, prefix + "MP4/", (".mp4",), work) \
+        #   A meeting's MP4/ can hold MORE THAN ONE mp4 when the session dropped
+        #   and rejoined the SAME meeting_id (Zoom writes the session in parts).
+        #   Analyse ALL the parts (concatenated into one), not just the biggest
+        #   file — otherwise half the session is missing from the report.
+        vtt = _download_first(s3, bucket, prefix + "TRANSCRIPT/", (".vtt",), work)
+        video = _prepare_video(s3, bucket, prefix, vtt, work) \
                 or _download_first(s3, bucket, prefix, (".mp4",), work)
         if not video:
             raise RuntimeError(f"no MP4 under s3://{bucket}/{prefix}")
-        vtt = _download_first(s3, bucket, prefix + "TRANSCRIPT/", (".vtt",), work)
         temp_json = _download_key(s3, bucket, prefix + "training-temp.json", work)
         trainer_img = _find_trainer_photo(job.get("trainer") or "")
 
@@ -266,8 +270,12 @@ def _merge_session(s3, bucket: str, prefix: str, meeting_id: str, cfg) -> None:
 
     day = _int_or_none(getattr(cfg, "day_number", None))
     if day is not None:
+        # this day's recordings = those tagged with this Day, PLUS any whose Day
+        # is unknown (Salesforce miss) on the same date — a null-Day recording on
+        # the date is almost certainly part of this day, so fold it in rather than
+        # strand it as its own partial result.
         chunks = [(k, r) for k, r in loaded
-                  if _int_or_none((r.get("meeting") or {}).get("day")) == day]
+                  if _int_or_none((r.get("meeting") or {}).get("day")) in (day, None)]
         group_id = f"day{day}"
     else:
         chunks = []
@@ -762,6 +770,122 @@ def _download_key(s3, bucket, key, work) -> str | None:
         return local
     except Exception:
         return None
+
+
+# ── multi-MP4 (one meeting recorded in several parts) ────────────────────────
+def _list_mp4s(s3, bucket: str, prefix: str) -> list:
+    """(.mp4 key, size, LastModified) directly under prefix, ordered by
+    LastModified ascending — Zoom delivers/uploads the parts of one session in
+    chronological order, so this is their recording order."""
+    out, token = [], None
+    while True:
+        kw = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kw["ContinuationToken"] = token
+        resp = s3.list_objects_v2(**kw)
+        for o in resp.get("Contents") or []:
+            if o["Key"].lower().endswith(".mp4"):
+                out.append((o["Key"], o.get("Size") or 0, o.get("LastModified")))
+        if not resp.get("IsTruncated"):
+            break
+        token = resp.get("NextContinuationToken")
+    out.sort(key=lambda x: (x[2] is None, x[2]))   # LastModified asc, None last
+    return out
+
+
+def _ffmpeg_duration(path: str):
+    """Seconds of an MP4 via `ffmpeg -i` (parsed from stderr — no ffprobe needed,
+    which the box may lack). None on failure."""
+    import re
+    try:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-i", path],
+                           capture_output=True, text=True, timeout=180)
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", p.stderr or "")
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    except Exception as exc:
+        print(f"  [mp4:duration] {path}: {exc!r}")
+    return None
+
+
+def _vtt_span(vtt_path: str | None):
+    """The real session length = the last VTT cue end (seconds). None if no/bad VTT."""
+    if not vtt_path:
+        return None
+    try:
+        from analyzer import transcript as T
+        ends = [s.get("end") or 0 for s in T.parse_vtt(vtt_path)]
+        return max(ends) if ends else None
+    except Exception:
+        return None
+
+
+def _concat_mp4s(paths: list, out_path: str) -> str | None:
+    """Concatenate MP4 parts into ONE continuous video (ffmpeg concat demuxer).
+    Stream-copy first (fast; Zoom parts of one session share codec params), then
+    fall back to re-encode. Returns out_path or None."""
+    listf = out_path + ".txt"
+    try:
+        with open(listf, "w", encoding="utf-8") as fh:
+            for p in paths:
+                fh.write("file '%s'\n" % p.replace("'", "'\\''"))
+    except OSError as exc:
+        print(f"  [mp4:concat] could not write list: {exc!r}")
+        return None
+    for extra in (["-c", "copy"], []):   # copy, then re-encode
+        try:
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                                "-f", "concat", "-safe", "0", "-i", listf, *extra, out_path],
+                               capture_output=True, text=True, timeout=3600)
+            if r.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                return out_path
+            print(f"  [mp4:concat] ffmpeg {'copy' if extra else 're-encode'} rc={r.returncode}: "
+                  f"{(r.stderr or '')[-300:]}")
+        except Exception as exc:
+            print(f"  [mp4:concat] {exc!r}")
+    return None
+
+
+def _prepare_video(s3, bucket: str, prefix: str, vtt_path: str | None, work: str) -> str | None:
+    """Return a single local MP4 to analyse. If the meeting's MP4/ holds several
+    parts (same meeting_id dropped + rejoined), download them all in recording
+    order and CONCATENATE into one continuous session. If the several files are
+    instead Zoom VIEWS (same time range, different layout — summed duration far
+    exceeds the real session length), keep only the largest. One file → as-is.
+    Returns None if MP4/ is empty (caller falls back)."""
+    listing = _list_mp4s(s3, bucket, prefix + "MP4/")
+    if not listing:
+        return None
+    if len(listing) == 1:
+        return _download_key(s3, bucket, listing[0][0], work)
+
+    parts = []   # (local_path, size)
+    for i, (k, sz, _lm) in enumerate(listing):
+        lp = _download_key(s3, bucket, k, os.path.join(work, f"mp4{i}"))
+        if lp:
+            parts.append((lp, sz))
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0][0]
+
+    paths = [p for p, _ in parts]
+    total = sum(d for d in (_ffmpeg_duration(p) for p in paths) if d) or 0
+    span = _vtt_span(vtt_path)
+    if span and total and total > span * 1.5:
+        print(f"  [mp4] {len(paths)} MP4s total ~{round(total)}s vs session ~{round(span)}s "
+              f"-> looks like VIEWS; analysing the largest only")
+        return max(parts, key=lambda x: x[1])[0]
+
+    print(f"  [mp4] {len(paths)} MP4 parts of one meeting (drop/rejoin) total ~{round(total)}s "
+          f"-> concatenating into ONE session")
+    out = os.path.join(work, "in", "session-concat.mp4")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    merged = _concat_mp4s(paths, out)
+    if merged:
+        return merged
+    print("  [mp4:concat] failed; using the largest single part")
+    return max(parts, key=lambda x: x[1])[0]
 
 
 def _find_trainer_photo(trainer_raw: str) -> str | None:
