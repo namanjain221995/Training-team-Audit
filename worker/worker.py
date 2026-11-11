@@ -943,13 +943,16 @@ def _job_from_prefix(bucket: str, prefix: str) -> dict:
         t = json.loads(body)
     except Exception:
         t = {}
+    # S3 layout: Training/{Program}/{Trainer}/{Year}/{Month}/{Candidate}/{Date}/{Time}/{MeetingID}/
+    # training-temp.json (when present) is authoritative; these path segments are
+    # only the fallback for older meetings that have no temp file.
     parts = prefix.strip("/").split("/")
     return {
         "bucket": bucket, "prefix": prefix,
         "meeting_id": t.get("meeting_id") or (parts[-1] if parts else ""),
         "day": t.get("day"), "day_step_name": t.get("day_step_name"),
-        "trainer": t.get("trainer") or (parts[1] if len(parts) > 1 else ""),
-        "candidate": t.get("candidate") or (parts[4] if len(parts) > 4 else ""),
+        "trainer": t.get("trainer") or (parts[2] if len(parts) > 2 else ""),
+        "candidate": t.get("candidate") or (parts[5] if len(parts) > 5 else ""),
     }
 
 

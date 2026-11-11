@@ -57,6 +57,13 @@ TRAINER_READING_PTS       = -4
 TRAINER_LATE_GRACE_MIN   = 5
 TRAINER_LATE_BRACKET_MIN = 5
 TRAINER_LATE_BRACKET_PTS = 5
+# A different / additional on-screen person (proxy swap, extra attendee). Grace 5
+# min (a brief appearance costs nothing), then -2 per further minute. Only scored
+# when per-identity presence is available (needs a trainer reference photo to
+# anchor who the trainer is); WITHOUT a reference the signal is unreliable on
+# Zoom's active-speaker view -> surfaced as a 0-point review flag, never deducted.
+PERSON_CHANGE_GRACE_SEC   = 300
+PERSON_CHANGE_PTS_PER_MIN = -2
 
 # Integrity flag types that are DETECTED but intentionally NOT acted on — no deduction,
 # and not surfaced as a flag/proof. Owner policy (2026-09-07): trainer coaching of
@@ -481,18 +488,27 @@ def _apply_person_change(cons: dict, cfg, deductions: list, flags: list) -> None
     it, but no marks are lost. Falls back to the old boolean behaviour when the
     detector did not report per-identity presence (e.g. no trainer reference photo).
     """
-    grace = getattr(cfg, "person_change_grace_sec", 120) or 120
+    grace = getattr(cfg, "person_change_grace_sec", PERSON_CHANGE_GRACE_SEC) or PERSON_CHANGE_GRACE_SEC
     start_window = getattr(cfg, "session_start_window_sec", 300) or 300
     session_type = (getattr(cfg, "session_type", "one_on_one") or "one_on_one").lower()
 
     presences = cons.get("identity_presence")
     if not presences:
-        # no per-identity presence available -> original all-or-nothing behaviour
+        # No per-identity presence (e.g. no trainer reference photo). The raw
+        # identity count is UNRELIABLE on Zoom's active-speaker view — it
+        # legitimately shows the trainer, the candidate and others, plus any faces
+        # inside shared slides — so a swap cannot be proven. Surface it for a human
+        # to review, but DO NOT deduct (flag-only, 0 points).
         if cons.get("same_person_throughout") is False:
-            pts, sev = WEIGHTS["person_change_midsession"]
-            deductions.append({"reason": "person_change_midsession", "points": pts, "severity": sev,
-                               "evidence": cons.get("note"), "evidence_frames": cons.get("evidence_frames")})
-            flags.append({"source": "video", "type": "person_change_midsession", **cons})
+            deductions.append({
+                "reason": "person_change_midsession", "points": 0,
+                "severity": "info", "scoring": "flag_only",
+                "evidence": (cons.get("note") or "multiple on-screen identities seen")
+                            + " — NOT scored: no trainer reference image to confirm a swap "
+                              "(active-speaker view normally shows trainer + candidate + slide faces)",
+                "evidence_frames": cons.get("evidence_frames")})
+            flags.append({"source": "video", "type": "person_change_midsession",
+                          "scoring": "flag_only", **cons})
         return
 
     frames = cons.get("evidence_frames")
@@ -513,19 +529,24 @@ def _apply_person_change(cons: dict, cfg, deductions: list, flags: list) -> None
             flags.append({**base, "type": "person_change_brief"})
             continue
 
+        # graduated: -2 per whole minute the extra person stayed BEYOND the 5-min grace
+        over_min = math.ceil((pres - grace) / 60)
+        pts = PERSON_CHANGE_PTS_PER_MIN * over_min
+        sev = "critical" if pts <= -30 else ("high" if pts <= -20 else "medium")
+
         if session_type == "group":
             if first <= start_window:           # present from the start -> expected participant
                 flags.append({**base, "type": "expected_participant"})
                 continue
-            pts, sev = WEIGHTS["person_appeared_midsession"]
             reason = "person_appeared_midsession"
             evidence = (f"an additional person (not on camera at the start) appeared at {ts} and stayed "
-                        f"~{round(pres / 60)} min — unexpected for this group session")
+                        f"~{round(pres / 60)} min ({over_min} min beyond the {round(grace / 60)}-min grace) "
+                        f"— unexpected for this group session")
         else:
-            pts, sev = WEIGHTS["person_change_midsession"]
             reason = "person_change_midsession"
-            evidence = (f"a different on-screen person was present ~{round(pres / 60)} min (first at {ts}) — "
-                        f"a 1:1 session should have a single candidate")
+            evidence = (f"a different on-screen person was present ~{round(pres / 60)} min (first at {ts}, "
+                        f"{over_min} min beyond the {round(grace / 60)}-min grace) — a 1:1 session should "
+                        f"have a single candidate")
 
         deductions.append({"reason": reason, "points": pts, "severity": sev,
                            "evidence": evidence, "approx_time": ts, "evidence_frames": frames})
