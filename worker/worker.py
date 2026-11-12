@@ -313,11 +313,15 @@ def _merge_session(s3, bucket: str, prefix: str, meeting_id: str, cfg) -> None:
                       Body=json.dumps(session, indent=2, ensure_ascii=False).encode(),
                       ContentType="application/json")
 
+        # EVERY day gets the SAME canonical report path: {Date}/report-day{N}.html.
+        #   >1 recording -> render the merged report from the day dict.
+        #   1 recording  -> copy that recording's own report.html up (keeps its
+        #                   embedded video; no re-render needed).
         merge_block = session.get("merge") or {}
         if (merge_block.get("chunk_count") or 0) > 1:
-            # only a genuinely merged day gets a date-level report (a single
-            # recording already has its own report.html with its video)
             _render_session_report(s3, bucket, date_prefix, group_id, session)
+        else:
+            _copy_single_report(s3, bucket, date_prefix, group_id, session)
 
         sc = session.get("scoring") or {}
         print(f"  [merge] {merge_block.get('strategy')} x{merge_block.get('chunk_count')} "
@@ -364,6 +368,24 @@ def _merge_clients(cfg) -> list:
         print(f"  [merge] no LLM client ({exc!r}); a multi-recording day cannot be "
               f"re-analysed — it will be marked analysis incomplete")
         return []
+
+
+def _copy_single_report(s3, bucket: str, date_prefix: str, group_id: str, session: dict) -> None:
+    """Single-recording day: copy that recording's own report.html up to the date
+    level as report-{group_id}.html, so every day has the same canonical report
+    path. It is self-contained (embedded video), so a copy is enough."""
+    try:
+        chunks = (session.get("merge") or {}).get("chunks") or []
+        k = chunks[0].get("key") if chunks else None
+        if not (k and k.endswith("result.json")):
+            print(f"  [merge:copy-report] no chunk report to copy (date={date_prefix})")
+            return
+        src = k[: -len("result.json")] + "report.html"
+        dst = f"{date_prefix}report-{group_id}.html"
+        s3.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src})
+        print(f"  [merge] day report (single, copied) -> s3://{bucket}/{dst}")
+    except Exception as exc:
+        print(f"  [merge:copy-report] FAILED date={date_prefix} group={group_id} : {exc!r}")
 
 
 def _render_session_report(s3, bucket: str, date_prefix: str, group_id: str, session: dict) -> None:

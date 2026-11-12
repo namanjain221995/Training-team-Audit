@@ -171,7 +171,7 @@ evidence (timestamp, transcript quote, `evidence_frames`, and `proof` paths):
 | reason | points |
 |---|---|
 | `proxy_interview_coaching` (repeated; **−5/medium if mentioned only once** — owner-tuned 2026-07-04) | −10 |
-| `person_change_midsession` | −40 |
+| `person_change_midsession` (2nd on-camera person > 5-min grace; **−2/min beyond 5 min**; **flag-only/0 when no trainer reference image** — unreliable on active-speaker view) | −2/min |
 | `fabricated_experience` | −30 |
 | `scripted_deception` | −20 |
 | `candidate_camera_off` (< 50% on-camera while speaking, >30s spoken) | −20 |
@@ -288,31 +288,72 @@ worker will write the score/flags back to this `Session__c` record.
   `SF_SESSION_STEP_RELATION=Candidate_Training_Step__r.Name`,
   `SF_SESSION_CANDIDATE_RELATION=Candidate__r.Name`
 
-## 9. S3 layout and the multi-recording merge (design — NOT built yet)
+## 9. S3 layout and the multi-recording merge (BUILT — `worker/merge.py`)
 
 Files land at:
 ```
-Training/{Trainer}/{Year}/{Month}/{Candidate}/{Date}/{Time}/{MeetingID}/{MP4|M4A|TRANSCRIPT|CHAT}/
+Training/{Program}/{Trainer}/{Year}/{Month}/{Candidate}/{Date}/{Time}/{MeetingID}/{MP4|M4A|TRANSCRIPT|CHAT}/
 ```
 
 **Multi-recording problem:** if a host stops and restarts, Zoom keeps the **same
-`meeting_id`** but a **new `uuid` + `start_time`**, so one logical session lands in
-several `Time-*` folders (all resolving to the same Day). The worker must group by
-**`meeting_id` + date** and produce ONE `session-result.json`.
+`meeting_id`** but a **new `uuid` + `start_time`**, so one logical training DAY lands
+in several `Time-*` folders (all resolving to the same Day). The Lambda fires one
+job per recording, so each recording is analyzed separately into its own Time
+folder — then the worker groups by **`{Date}` + Day-number** and produces ONE
+day-level result + ONE day report.
 
-Rules for the merge step:
-- Analyze each chunk once → per-chunk `result.json` in its Time folder.
-- Merge into `.../{Candidate}/{Date}/session-result-{meeting_id}.json` → this is
-  what goes to Salesforce.
+**The day group spans `meeting_id`s.** All recordings that share a date + Day-number
+are ONE day, even across different `meeting_id`s — a host restart into a NEW meeting,
+or two separate sessions of the same day's topic (owner rule: combine + re-analyse as
+one day). When the Day number is unknown (Salesforce lookup failed) the worker can't
+safely combine across meetings and falls back to grouping by `meeting_id`.
+
+How the merge works (`_merge_session` → `merge.merge`):
+- Analyze each recording once → per-chunk `result.json` in its Time folder (unchanged).
+- Load every `result.json` under the `{Date}` and group the ones whose `meeting.day`
+  matches this job's Day, ordered by TRUE recording-start time parsed from the
+  `Time-{h}-{mm}-{AM|PM}-IST` key segment (`_recording_sort_key`) — NOT `analyzed_at`
+  (recordings can be analyzed out of order).
+- Drop **false starts** (< `MERGE_MIN_CHUNK_SEC`, default 120s) before stitching;
+  never drop them all.
+- **1 recording (fast path):** the recording's own `result.json` IS the day — copied
+  verbatim to `session-result-day{N}.json` (no second LLM pass, no banner).
+- **2+ recordings (`MERGE_STRATEGY=stitch`, default):** CONCATENATE the per-chunk
+  transcripts (downloaded `transcript-combined.json` or the Zoom VTT) with cumulative
+  time offsets → ONE continuous transcript → re-run `describe_meeting` +
+  `analyze_coverage` + `compute_metrics` **once** over the whole day (fallback across
+  `LLM_PROVIDERS`, failures → `meeting.llm_failures`). Video is summed from the chunk
+  results (`_merge_video`, incl. `camera_state` + `vision.trainer_reading` so
+  `trainer_camera_off` / `trainer_reading_screen` survive). `scoring.assemble` runs
+  once → `session-result-day{N}.json` + a date-level **`report-day{N}.html`**
+  (the canonical day report). `MERGE_STRATEGY=longest` keeps the biggest recording.
 - **Store raw seconds / sets / counts per chunk; compute ratios and percentages
-  ONLY at merge time. Never average per-chunk percentages.** (This is why
-  `result.json` stores `*_sec` values.) Applies to `session_too_short` too: sum
-  chunk minutes before comparing to the plan.
-- Idempotent: a late chunk re-triggers the merge and overwrites the session file.
+  ONLY at merge time. Never average per-chunk percentages.** `session_too_short` is
+  recomputed from the SUMMED minutes vs the 120-min plan. Trainer lateness comes from
+  the FIRST recording (the real session start), not the triggering chunk.
+- Idempotent: a late recording re-triggers the merge and overwrites the day files.
 
-**Open decision:** when a session splits, is it a **false start** (keep the
-longest chunk, drop short ones) or a **genuine continuation** (stitch all chunks in
-`start_time` order)? Resolve before writing the merge.
+**Resolved (false-start vs continuation):** BOTH — recordings < 120s are treated as
+false starts and dropped; the rest are stitched in recording-start order as a genuine
+continuation.
+
+**Analysis-validity gate (`scoring.assemble`):** a PROVABLE pipeline failure (no
+transcript, empty coverage while sections were expected, or — at merge — some
+recordings' transcripts failed to load / the day hasn't merged yet) sets
+`meeting.analysis_status` + `scoring.analysis_status = "incomplete"`, withholds the
+scores (set to `null`, NOT a fake 0), and the day is **excluded from the weekly
+averages** but still LISTED. A genuine 0% (real transcript, trainer covered nothing)
+still scores normally — "incomplete" is never inferred from a low number.
+
+**Day report + weekly link:** a merged day's canonical report is
+`{Date}/report-day{N}.html` (keyed by Day so two different days on one date never
+collide); a single-recording day links its own `Time-*/.../report.html`. The weekly
+feeds ONE file per `{Date}`+Day (`_pick_week_sources`, keyed by `(candidate, date,
+day)` via `_file_day`; prefers `session-result-*.json`, legacy per-recording
+`result.json` fallback — provisional if an un-merged day still has >1 recording) so a
+merged same-topic day appears once and recordings never double-count a day.
+`report.html`/`report.py` shows a merge banner (N parts + per-part links) and an
+"analysis incomplete" banner when applicable.
 
 ## 10. Running & testing locally
 
@@ -349,11 +390,14 @@ a temp file is present) · `ENABLE_VIDEO_ANALYSIS`, `FRAME_FPS`,
 1. **EC2 worker** — long-poll `training-analysis-jobs`, pull the recording from S3
    using `prefix`, run this analyzer's logic, write `result.json` back to the
    meeting prefix. (Lambda → SQS → EC2; never invoke EC2 directly.)
-2. **Multi-recording merge** — implement §9 (grouping + the chosen false-start vs
-   stitch rule + raw-seconds merge; recompute `session_too_short` from summed
-   minutes).
+2. ~~**Multi-recording merge**~~ — DONE (§9): stitch transcripts + re-run the LLM
+   once per day, false-start drop, recording-start ordering, one date-level day
+   report, analysis-validity gate, weekly reads one file per meeting+date.
 3. **Salesforce write-back** — push `session_integrity_score`, `tier`, and the
-   flag summary onto the `Session__c` record.
+   flag summary onto the `Session__c` record. Read from
+   `session-result-day{N}.json` (the day-level merged result, one per `{Date}`+Day),
+   and SKIP days whose `scoring.analysis_status == "incomplete"` (scores withheld,
+   not real).
 4. **Verify Salesforce step names** vs the rubric (see §6): same curriculum with
    different labels, or genuinely different per-day content?
 
@@ -400,10 +444,17 @@ worker/worker.py   SQS long-poll loop. Per job: download MP4/VTT/temp-json/train
                    + proof/ back to the SAME prefix -> re-merge the session file.
                    Queue empty for IDLE_MINUTES -> stops its own instance
                    (Lambda's wake_worker() starts it per job — deploy/lambda-start-worker.md).
-worker/merge.py    session merge across chunks of one meeting_id+date:
-                   MERGE_STRATEGY=stitch (sum raw seconds, union coverage/flags,
-                   re-score via scoring.assemble) | longest (drop false starts).
-                   Output: {date}/session-result-{meeting_id}.json
+worker/merge.py    day merge across all recordings of one {Date}+Day-number — even
+                   across different meeting_ids (restart into a new meeting, or two
+                   sessions of the same day; §9). Ordered by recording-start (Time-
+                   key segment); <120s false starts dropped. 1 recording = fast copy;
+                   >1 = MERGE_STRATEGY=stitch (concat transcripts + ONE LLM re-run over
+                   the whole day + summed video incl. camera_state/trainer_reading,
+                   re-score via scoring.assemble) | longest (keep biggest). Outputs
+                   {date}/session-result-day{N}.json (+ report-day{N}.html for merged
+                   days). session_too_short from SUMMED minutes; trainer lateness from
+                   the FIRST recording; partial-transcript / all-LLM-fail days marked
+                   analysis_status=incomplete (scores withheld).
 deploy/            setup-ec2.sh (bootstrap) · training-worker.service (systemd;
                    ExecStartPre self-update) · deploy.sh (CI entry) ·
                    iam-worker-policy.json · lambda-start-worker.md
